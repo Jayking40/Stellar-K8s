@@ -34,7 +34,10 @@ async fn main() -> Result<(), Error> {
         info!("OpenTelemetry tracing disabled (OTEL_EXPORTER_OTLP_ENDPOINT not set)");
     }
 
-    info!("Starting Stellar-K8s Operator v{}", env!("CARGO_PKG_VERSION"));
+    info!(
+        "Starting Stellar-K8s Operator v{}",
+        env!("CARGO_PKG_VERSION")
+    );
 
     // Initialize Kubernetes client
     let client = kube::Client::try_default()
@@ -44,7 +47,9 @@ async fn main() -> Result<(), Error> {
     info!("Connected to Kubernetes cluster");
 
     // Create shared controller state
-    let state = Arc::new(controller::ControllerState { client: client.clone() });
+    let state = Arc::new(controller::ControllerState {
+        client: client.clone(),
+    });
 
     // Start the controller
     // In production, you might also start the REST API server here

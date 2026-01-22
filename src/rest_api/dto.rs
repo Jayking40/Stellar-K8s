@@ -40,6 +40,8 @@ pub struct NodeDetailResponse {
 }
 
 /// Request to create a node (simplified)
+/// Reserved for future API endpoints
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateNodeRequest {

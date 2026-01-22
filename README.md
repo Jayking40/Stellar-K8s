@@ -18,6 +18,7 @@ Designed for high availability, type safety, and minimal footprint.
 
 - **🦀 Rust-Native Performance**: Built with `kube-rs` and `Tokio` for an ultra-lightweight footprint (~15MB binary) and complete memory safety.
 - **🛡️ Enterprise Reliability**: Type-safe error handling prevents runtime failures. Built-in `Finalizers` ensure clean PVC and resource cleanup.
+- **🏥 Auto-Sync Health Checks**: Automatically monitors Horizon and Soroban RPC nodes, only marking them Ready when fully synced with the network.
 - **GitOps Ready**: Fully compatible with ArgoCD and Flux for declarative infrastructure management.
 - **🔭 Observable by Default**: Native Prometheus metrics integration for monitoring node health, ledger sync status, and resource usage.
 - **⚡ Soroban Ready**: First-class support for Soroban RPC nodes with captive core configuration.
@@ -96,6 +97,7 @@ kubectl get stellarnodes -n stellar
 - [x] Basic Controller logic with `kube-rs`
 - [x] Helm Chart for easy deployment
 - [x] CI/CD Pipeline with GitHub Actions and Docker builds
+- [x] Auto-Sync Health Checks for Horizon and Soroban RPC nodes
 
 ### Phase 2: Soroban & Observability (Month 2)
 - [ ] Full Soroban RPC node support with captive core

@@ -1,0 +1,123 @@
+# Example Horizon node with auto-sync health checking
+#
+# This example demonstrates how the operator automatically monitors
+# Horizon's sync status and only marks it as Ready when fully synced.
+#
+# Apply with:
+#   kubectl apply -f examples/horizon-with-health-check.yaml
+#
+# Monitor sync progress:
+#   kubectl get stellarnode my-horizon -w
+#   kubectl get stellarnode my-horizon -o jsonpath='{.status.phase}'
+#   kubectl get stellarnode my-horizon -o jsonpath='{.status.ledgerSequence}'
+
+apiVersion: stellar.org/v1alpha1
+kind: StellarNode
+metadata:
+  name: my-horizon
+  namespace: stellar
+spec:
+  # Horizon API server
+  nodeType: Horizon
+  
+  # Target network
+  network: Testnet
+  
+  # Container version
+  version: "v21.0.0"
+  
+  # Number of replicas (can scale horizontally)
+  replicas: 2
+  
+  # Resource requirements
+  resources:
+    requests:
+      cpu: "2"
+      memory: "8Gi"
+    limits:
+      cpu: "4"
+      memory: "16Gi"
+  
+  # Storage configuration
+  storage:
+    storageClass: "ssd"
+    size: "500Gi"
+    retentionPolicy: Retain
+  
+  # Horizon-specific configuration
+  horizonConfig:
+    # Reference to secret containing database credentials
+    # Secret should have keys: DATABASE_URL
+    databaseSecretRef: "horizon-db-credentials"
+    
+    # Enable ingestion from Stellar Core
+    enableIngest: true
+    
+    # Stellar Core URL to ingest from
+    stellarCoreUrl: "http://stellar-core:11626"
+    
+    # Number of parallel ingestion workers
+    ingestWorkers: 2
+    
+    # Enable experimental ingestion features
+    enableExperimentalIngestion: false
+
+---
+# Example Secret for database credentials
+# In production, use a secure secret management solution
+apiVersion: v1
+kind: Secret
+metadata:
+  name: horizon-db-credentials
+  namespace: stellar
+type: Opaque
+stringData:
+  DATABASE_URL: "postgres://horizon:password@postgres:5432/horizon?sslmode=disable"
+
+---
+# Expected Status after deployment (shown for reference, not applied)
+#
+# The operator will update the status as the node progresses through phases:
+#
+# Phase 1: Creating (pod starting)
+# status:
+#   phase: Creating
+#   message: "Waiting for pod to be ready"
+#   replicas: 2
+#   readyReplicas: 0
+#   conditions:
+#     - type: Ready
+#       status: "False"
+#       reason: NodeNotHealthy
+#       message: "Waiting for pod to be ready"
+#
+# Phase 2: Syncing (ingesting history)
+# status:
+#   phase: Syncing
+#   message: "Horizon is syncing: at ledger 49500000, core at 50000000 (lag: 500000)"
+#   replicas: 2
+#   readyReplicas: 0
+#   ledgerSequence: 49500000
+#   conditions:
+#     - type: Ready
+#       status: "False"
+#       reason: NodeSyncing
+#       message: "Horizon is syncing: at ledger 49500000, core at 50000000 (lag: 500000)"
+#     - type: Progressing
+#       status: "True"
+#       reason: Syncing
+#       message: "Horizon is syncing: at ledger 49500000, core at 50000000 (lag: 500000)"
+#
+# Phase 3: Ready (fully synced)
+# status:
+#   phase: Ready
+#   message: "Node is healthy and synced"
+#   replicas: 2
+#   readyReplicas: 2
+#   ledgerSequence: 50000000
+#   endpoint: "my-horizon.stellar.svc.cluster.local:8000"
+#   conditions:
+#     - type: Ready
+#       status: "True"
+#       reason: NodeSynced
+#       message: "Node is fully synced and operational"
