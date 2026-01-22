@@ -23,7 +23,7 @@ use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta, OwnerReference};
 use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::{Client, Resource, ResourceExt};
-use tracing::{info, warn};
+use tracing::{info, warn, instrument};
 
 use crate::crd::{IngressConfig, KeySource, NodeType, StellarNode};
 use crate::error::{Error, Result};
@@ -73,6 +73,7 @@ fn resource_name(node: &StellarNode, suffix: &str) -> String {
 // ============================================================================
 
 /// Ensure a PersistentVolumeClaim exists for the node
+#[instrument(skip(client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
 pub async fn ensure_pvc(client: &Client, node: &StellarNode) -> Result<()> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<PersistentVolumeClaim> = Api::namespaced(client.clone(), &namespace);
@@ -135,6 +136,7 @@ fn build_pvc(node: &StellarNode) -> PersistentVolumeClaim {
 }
 
 /// Delete the PersistentVolumeClaim for a node
+#[instrument(skip(client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
 pub async fn delete_pvc(client: &Client, node: &StellarNode) -> Result<()> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<PersistentVolumeClaim> = Api::namespaced(client.clone(), &namespace);
@@ -156,6 +158,7 @@ pub async fn delete_pvc(client: &Client, node: &StellarNode) -> Result<()> {
 // ============================================================================
 
 /// Ensure a ConfigMap exists with node configuration
+#[instrument(skip(client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
 pub async fn ensure_config_map(client: &Client, node: &StellarNode) -> Result<()> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<ConfigMap> = Api::namespaced(client.clone(), &namespace);
@@ -227,6 +230,7 @@ fn build_config_map(node: &StellarNode) -> ConfigMap {
 }
 
 /// Delete the ConfigMap for a node
+#[instrument(skip(client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
 pub async fn delete_config_map(client: &Client, node: &StellarNode) -> Result<()> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<ConfigMap> = Api::namespaced(client.clone(), &namespace);
@@ -248,6 +252,7 @@ pub async fn delete_config_map(client: &Client, node: &StellarNode) -> Result<()
 // ============================================================================
 
 /// Ensure a Deployment exists for RPC nodes
+#[instrument(skip(client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
 pub async fn ensure_deployment(client: &Client, node: &StellarNode) -> Result<()> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
@@ -302,6 +307,7 @@ fn build_deployment(node: &StellarNode) -> Deployment {
 // ============================================================================
 
 /// Ensure a StatefulSet exists for Validator nodes
+#[instrument(skip(client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
 pub async fn ensure_statefulset(client: &Client, node: &StellarNode) -> Result<()> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<StatefulSet> = Api::namespaced(client.clone(), &namespace);
@@ -349,6 +355,7 @@ fn build_statefulset(node: &StellarNode) -> StatefulSet {
 }
 
 /// Delete the workload (Deployment or StatefulSet) for a node
+#[instrument(skip(client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
 pub async fn delete_workload(client: &Client, node: &StellarNode) -> Result<()> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
     let name = node.name_any();
@@ -384,6 +391,7 @@ pub async fn delete_workload(client: &Client, node: &StellarNode) -> Result<()> 
 // ============================================================================
 
 /// Ensure a Service exists for the node
+#[instrument(skip(client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
 pub async fn ensure_service(client: &Client, node: &StellarNode) -> Result<()> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<Service> = Api::namespaced(client.clone(), &namespace);
@@ -449,6 +457,7 @@ fn build_service(node: &StellarNode) -> Service {
 }
 
 /// Delete the Service for a node
+#[instrument(skip(client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
 pub async fn delete_service(client: &Client, node: &StellarNode) -> Result<()> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<Service> = Api::namespaced(client.clone(), &namespace);
