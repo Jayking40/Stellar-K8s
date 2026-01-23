@@ -9,8 +9,10 @@ repository = "https://github.com/stellar/stellar-k8s"
 
 [dependencies]
 # Kubernetes client and operator framework
-kube = { version = "0.93", features = ["runtime", "derive"] }
+kube = { version = "0.94", features = ["runtime", "derive", "unstable-runtime", "admission"] }
+kube-runtime = { version = "0.94", features = ["unstable-runtime"] }
 k8s-openapi = { version = "0.22", features = ["latest"] }
+kube-leader-election = "0.35"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -30,6 +32,9 @@ anyhow = "1"
 
 # Date/time handling
 chrono = { version = "0.4", features = ["serde"] }
+
+# Hostname for leader election
+hostname = "0.4"
 
 # Logging and tracing
 tracing = "0.1"

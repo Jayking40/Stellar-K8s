@@ -8,6 +8,9 @@ use stellar_k8s::{controller, Error};
 use tracing::{info, Level};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use kube_leader_election::{LeaseLock, LeaseLockParams};
+use tokio::sync::watch;
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize tracing with OpenTelemetry
@@ -46,13 +49,34 @@ async fn main() -> Result<(), Error> {
 
     info!("Connected to Kubernetes cluster");
 
+    // Leader election configuration
+    let namespace = std::env::var("POD_NAMESPACE").unwrap_or_else(|_| "default".to_string());
+    let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| {
+        hostname::get()
+            .ok()
+            .and_then(|h| h.into_string().ok())
+            .unwrap_or_else(|| "unknown-host".to_string())
+    });
+
+    info!("Leader election using holder ID: {}", hostname);
+
+    let lease_name = "stellar-operator-leader";
+    let lock = LeaseLock::new(
+        client.clone(),
+        &namespace,
+        LeaseLockParams {
+            lease_name: lease_name.into(),
+            holder_id: hostname.clone(),
+            lease_ttl: std::time::Duration::from_secs(15),
+        },
+    );
+
     // Create shared controller state
     let state = Arc::new(controller::ControllerState {
         client: client.clone(),
     });
 
-    // Start the controller
-    // In production, you might also start the REST API server here
+    // Start the REST API server (always running if feature enabled)
     #[cfg(feature = "rest-api")]
     {
         let api_state = state.clone();
