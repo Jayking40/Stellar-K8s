@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
-use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Service, Event};
+use k8s_openapi::api::core::v1::{Event, PersistentVolumeClaim, Service};
 use kube::{
     api::{Api, Patch, PatchParams, PostParams},
     client::Client,
@@ -20,10 +20,15 @@ use kube::{
 };
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::crd::{NodeType, StellarNode, StellarNodeStatus, Condition};
+use crate::crd::{
+    AutoscalingConfig, Condition, IngressConfig, NodeType, StellarNode, StellarNodeStatus, StellarNodeStatus,
+};
 use crate::error::{Error, Result};
 
-use super::archive_health::{check_history_archive_health, calculate_backoff, ArchiveHealthResult};
+// Constants
+const ARCHIVE_RETRIES_ANNOTATION: &str = "stellar.org/archive-health-retries";
+
+use super::archive_health::{calculate_backoff, check_history_archive_health, ArchiveHealthResult};
 use super::finalizers::STELLAR_NODE_FINALIZER;
 use super::health;
 use super::remediation;
@@ -191,13 +196,14 @@ async fn apply_stellar_node(client: &Client, node: &StellarNode) -> Result<Actio
                     .unwrap_or(true);
 
                 if is_startup_or_update {
-                    info!("Running history archive health check for {}/{}", namespace, name);
+                    info!(
+                        "Running history archive health check for {}/{}",
+                        namespace, name
+                    );
 
-                    let health_result = check_history_archive_health(
-                        &validator_config.history_archive_urls,
-                        None,
-                    )
-                    .await?;
+                    let health_result =
+                        check_history_archive_health(&validator_config.history_archive_urls, None)
+                            .await?;
 
                     if !health_result.any_healthy {
                         warn!(
@@ -245,7 +251,15 @@ async fn apply_stellar_node(client: &Client, node: &StellarNode) -> Result<Actio
     }
 
     // Update status to Creating
-    update_status(client, node, "Creating", Some("Creating resources"), 0, true).await?;
+    update_status(
+        client,
+        node,
+        "Creating",
+        Some("Creating resources"),
+        0,
+        true,
+    )
+    .await?;
 
     // 1. Create/update the PersistentVolumeClaim
     resources::ensure_pvc(client, node).await?;
@@ -268,10 +282,9 @@ async fn apply_stellar_node(client: &Client, node: &StellarNode) -> Result<Actio
     // 5. Ensure Service and finalize status
     resources::ensure_service(client, node).await?;
 
-
     // 5. Perform health check to determine if node is ready
     let health_result = health::check_node_health(client, node).await?;
-    
+
     debug!(
         "Health check result for {}/{}: healthy={}, synced={}, message={}",
         namespace, name, health_result.healthy, health_result.synced, health_result.message
@@ -399,10 +412,12 @@ async fn apply_stellar_node(client: &Client, node: &StellarNode) -> Result<Actio
     } else {
         ("Ready", "Node is healthy and synced".to_string())
     };
+
+    // 6. Update status with health check results
     
     // 7. Update status with health check results
     update_status_with_health(client, node, phase, Some(&message), &health_result).await?;
-    
+
     info!(
         "Node {}/{} status updated to: {} - {}",
         namespace, name, phase, message
@@ -427,6 +442,7 @@ async fn apply_stellar_node(client: &Client, node: &StellarNode) -> Result<Actio
     // 8. Fetch the ready replicas from Deployment/StatefulSet status
     let ready_replicas = get_ready_replicas(client, node).await.unwrap_or(0);
 
+    // 9. Update status to Running with ready replica count
     // 9. Update ledger sequence metric if available
     if let Some(ref status) = node.status {
         if let Some(seq) = status.ledger_sequence {
@@ -456,7 +472,6 @@ async fn apply_stellar_node(client: &Client, node: &StellarNode) -> Result<Actio
     )
     .await?;
 
-
     // Requeue based on current state
     let requeue_duration = if phase == "Ready" {
         // Check less frequently when ready
@@ -465,7 +480,7 @@ async fn apply_stellar_node(client: &Client, node: &StellarNode) -> Result<Actio
         // Check more frequently when syncing
         Duration::from_secs(15)
     };
-    
+
     Ok(Action::requeue(requeue_duration))
 }
 
@@ -671,12 +686,7 @@ async fn update_archive_health_status(
 
     let condition = Condition {
         type_: "ArchiveHealthCheck".to_string(),
-        status: if result.any_healthy {
-            "True"
-        } else {
-            "False"
-        }
-        .to_string(),
+        status: if result.any_healthy { "True" } else { "False" }.to_string(),
         last_transition_time: chrono::Utc::now().to_rfc3339(),
         reason: if result.any_healthy {
             "ArchiveHealthy"
@@ -739,29 +749,17 @@ async fn update_status_with_health(
 
     // Build conditions based on health check
     let mut conditions = Vec::new();
-    
+
     // Ready condition
     let ready_condition = if health.synced {
-        crate::crd::Condition::ready(
-            true,
-            "NodeSynced",
-            "Node is fully synced and operational",
-        )
+        crate::crd::Condition::ready(true, "NodeSynced", "Node is fully synced and operational")
     } else if health.healthy {
-        crate::crd::Condition::ready(
-            false,
-            "NodeSyncing",
-            &health.message,
-        )
+        crate::crd::Condition::ready(false, "NodeSyncing", &health.message)
     } else {
-        crate::crd::Condition::ready(
-            false,
-            "NodeNotHealthy",
-            &health.message,
-        )
+        crate::crd::Condition::ready(false, "NodeNotHealthy", &health.message)
     };
     conditions.push(ready_condition);
-    
+
     // Progressing condition
     if !health.synced && health.healthy {
         conditions.push(crate::crd::Condition::progressing(
@@ -774,7 +772,11 @@ async fn update_status_with_health(
         phase: phase.to_string(),
         message: message.map(String::from),
         observed_generation: node.metadata.generation,
-        replicas: if node.spec.suspended { 0 } else { node.spec.replicas },
+        replicas: if node.spec.suspended {
+            0
+        } else {
+            node.spec.replicas
+        },
         ready_replicas: if health.synced && !node.spec.suspended {
             node.spec.replicas
         } else {
