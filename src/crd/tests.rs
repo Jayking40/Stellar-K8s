@@ -40,8 +40,6 @@ mod stellar_node_spec_validation {
             maintenance_mode: false,
             network_policy: None,
             topology_spread_constraints: None,
-            load_balancer: None,
-            global_discovery: None,
         }
     }
 
@@ -71,8 +69,6 @@ mod stellar_node_spec_validation {
             maintenance_mode: false,
             network_policy: None,
             topology_spread_constraints: None,
-            load_balancer: None,
-            global_discovery: None,
         }
     }
 
@@ -101,8 +97,6 @@ mod stellar_node_spec_validation {
             maintenance_mode: false,
             network_policy: None,
             topology_spread_constraints: None,
-            load_balancer: None,
-            global_discovery: None,
         }
     }
 

@@ -72,17 +72,10 @@ wasmtime-wasi = { version = "17", optional = true }
 # Additional crypto for webhook TLS
 tokio-rustls = { version = "0.25", optional = true }
 
-# TLS and certificate generation
-rustls = "0.23"
-rustls-pemfile = "2"
-rcgen = "0.11"
-axum-server = { version = "0.7", features = ["tls-rustls"] }
-
 [features]
 default = ["rest-api", "metrics"]
 rest-api = ["axum", "tower", "tower-http"]
 metrics = ["prometheus-client", "once_cell"]
-admission-webhook = ["wasmtime", "wasmtime-wasi", "tokio-rustls", "base64", "sha2", "hex", "axum", "tower", "tower-http"]
 
 [dev-dependencies]
 tokio-test = "0.4"
