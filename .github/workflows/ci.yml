@@ -93,6 +93,56 @@ jobs:
         run: cargo test --doc
 
   # ==========================================================================
+  # E2E Integration Tests (KinD)
+  # ==========================================================================
+  e2e-kind:
+    name: E2E Integration (KinD)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-e2e-
+            ${{ runner.os }}-cargo-
+
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest --locked
+
+      - name: Setup kind cluster
+        uses: helm/kind-action@v1.13.0
+        with:
+          cluster_name: stellar-e2e
+
+      - name: Build operator image
+        run: docker build -t stellar-operator:e2e .
+
+      - name: Load operator image into kind
+        run: kind load docker-image stellar-operator:e2e --name stellar-e2e
+
+      - name: Run KinD E2E tests
+        env:
+          E2E_KIND: "1"
+          E2E_OPERATOR_IMAGE: stellar-operator:e2e
+          E2E_BUILD_IMAGE: "false"
+          E2E_LOAD_IMAGE: "false"
+          KIND_CLUSTER_NAME: stellar-e2e
+        run: cargo nextest run --test e2e_kind
+
+  # ==========================================================================
   # Build & Push Container Image
   # ==========================================================================
   build-and-push:
