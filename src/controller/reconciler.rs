@@ -37,7 +37,7 @@ use kube::{
 };
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::crd::{NodeType, StellarNode, StellarNodeStatus};
+use crate::crd::{DisasterRecoveryStatus, NodeType, StellarNode, StellarNodeStatus};
 use crate::error::{Error, Result};
 
 use super::archive_health::{calculate_backoff, check_history_archive_health, ArchiveHealthResult};
@@ -470,7 +470,6 @@ async fn apply_stellar_node(
     let health_result = health::check_node_health(client, node, ctx.mtls_config.as_ref()).await?;
     resources::ensure_service(client, node, ctx.enable_mtls).await?;
 
-
     debug!(
         "Health check result for {}/{}: healthy={}, synced={}, message={}",
         namespace, name, health_result.healthy, health_result.synced, health_result.message
@@ -499,6 +498,7 @@ async fn apply_stellar_node(
                 }
             }
         }
+    }
 
     // 8. Disaster Recovery reconciliation
     if let Some(dr_status) = dr::reconcile_dr(client, node).await? {
@@ -588,8 +588,6 @@ async fn apply_stellar_node(
     }
 
     // 10. Update status to Running with ready replica count
-    let phase = if node.spec.suspended {
-        "Suspended"
     Ok(Action::requeue(Duration::from_secs(if phase == "Ready" {
         60
     } else {
