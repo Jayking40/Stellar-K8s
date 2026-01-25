@@ -22,6 +22,9 @@ struct Args {
     /// Custom scheduler name (used when --scheduler is set)
     #[arg(long, env = "SCHEDULER_NAME", default_value = "stellar-scheduler")]
     scheduler_name: String,
+    /// Run in dry-run mode (calculate changes without applying them)
+    #[arg(long, env = "DRY_RUN")]
+    dry_run: bool,
 }
 
 #[tokio::main]
@@ -151,6 +154,7 @@ async fn main() -> Result<(), Error> {
         enable_mtls: args.enable_mtls,
         operator_namespace: args.namespace.clone(),
         mtls_config: mtls_config.clone(),
+        dry_run: args.dry_run,
     });
 
     // Start the peer discovery manager
