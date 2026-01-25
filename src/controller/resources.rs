@@ -212,11 +212,23 @@ fn build_config_map(
     // Add node-type-specific configuration
     match &node.spec.node_type {
         NodeType::Validator => {
+            let mut core_cfg = String::new();
             if let Some(config) = &node.spec.validator_config {
                 let quorum = quorum_override.or_else(|| config.quorum_set.clone());
                 if let Some(q) = quorum {
-                    data.insert("stellar-core.cfg".to_string(), q);
+                    core_cfg.push_str(&q);
                 }
+            }
+
+            if enable_mtls {
+                core_cfg.push_str("\n# mTLS Configuration\n");
+                core_cfg.push_str("HTTP_PORT_SECURE=true\n");
+                core_cfg.push_str("TLS_CERT_FILE=\"/etc/stellar/tls/tls.crt\"\n");
+                core_cfg.push_str("TLS_KEY_FILE=\"/etc/stellar/tls/tls.key\"\n");
+            }
+
+            if !core_cfg.is_empty() {
+                data.insert("stellar-core.cfg".to_string(), core_cfg);
             }
         }
         NodeType::Horizon => {
@@ -511,8 +523,7 @@ fn build_service(node: &StellarNode, enable_mtls: bool) -> Service {
 // ============================================================================
 
 /// Ensure a LoadBalancer Service exists for external access via MetalLB
-#[allow(dead_code)]
-#[instrument(skip(_client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
+
 pub async fn ensure_load_balancer_service(_client: &Client, node: &StellarNode) -> Result<()> {
     // TODO: load_balancer field not yet implemented in StellarNodeSpec
     // Uncomment when LoadBalancerConfig is added to the spec
@@ -704,8 +715,7 @@ fn build_load_balancer_service(node: &StellarNode, config: &LoadBalancerConfig) 
 }
 
 /// Delete the LoadBalancer Service for a node
-#[allow(dead_code)]
-#[instrument(skip(_client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
+
 pub async fn delete_load_balancer_service(_client: &Client, node: &StellarNode) -> Result<()> {
     // TODO: load_balancer field not yet implemented in StellarNodeSpec
     #[allow(unreachable_code)]
@@ -740,8 +750,7 @@ pub async fn delete_load_balancer_service(_client: &Client, node: &StellarNode) 
 /// Ensure MetalLB BGPAdvertisement and IPAddressPool ConfigMaps are documented
 /// Note: MetalLB CRDs must be created manually or via Helm; this function
 /// creates the recommended ConfigMap for cluster operators to reference.
-#[allow(dead_code)]
-#[instrument(skip(_client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
+
 pub async fn ensure_metallb_config(_client: &Client, node: &StellarNode) -> Result<()> {
     // TODO: load_balancer field not yet implemented in StellarNodeSpec
     #[allow(unreachable_code)]
@@ -1010,6 +1019,7 @@ spec:
 /// Delete the MetalLB configuration ConfigMap
 #[allow(dead_code)]
 #[instrument(skip(client, node), fields(name = %node.name_any(), namespace = node.namespace()))]
+#[allow(dead_code)]
 pub async fn delete_metallb_config(client: &Client, node: &StellarNode) -> Result<()> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
     let api: Api<ConfigMap> = Api::namespaced(client.clone(), &namespace);
@@ -1133,7 +1143,6 @@ fn build_ingress(node: &StellarNode, config: &IngressConfig) -> Ingress {
         vec![IngressTLS {
             hosts: Some(config.hosts.iter().map(|h| h.host.clone()).collect()),
             secret_name: Some(secret.clone()),
-            ..Default::default()
         }]
     });
 
@@ -1215,6 +1224,16 @@ fn build_pod_template(
         topology_spread_constraints: node.spec.topology_spread_constraints.clone(),
         ..Default::default()
     };
+
+    // Add Horizon database migration init container
+    if let NodeType::Horizon = node.spec.node_type {
+        if let Some(horizon_config) = &node.spec.horizon_config {
+            if horizon_config.auto_migration {
+                let init_containers = pod_spec.init_containers.get_or_insert_with(Vec::new);
+                init_containers.push(build_horizon_migration_container(node));
+            }
+        }
+    }
 
     // Add KMS init container if needed (Validator nodes only)
     if let NodeType::Validator = node.spec.node_type {
@@ -1346,7 +1365,6 @@ fn build_container(node: &StellarNode, enable_mtls: bool) -> Container {
                             }),
                             ..Default::default()
                         }),
-                        ..Default::default()
                     });
                 }
                 KeySource::KMS => {
@@ -1370,7 +1388,7 @@ fn build_container(node: &StellarNode, enable_mtls: bool) -> Container {
                 secret_key_ref: Some(SecretKeySelector {
                     name: Some(db_config.secret_key_ref.name.clone()),
                     key: db_config.secret_key_ref.key.clone(),
-                    optional: None,
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -1453,6 +1471,28 @@ fn build_container(node: &StellarNode, enable_mtls: bool) -> Container {
         volume_mounts: Some(volume_mounts),
         ..Default::default()
     }
+}
+
+/// Build the migration container for Horizon
+fn build_horizon_migration_container(node: &StellarNode) -> Container {
+    let mut container = build_container(node, false);
+    container.name = "horizon-db-migration".to_string();
+    // Use a shell to try upgrade then init if needed, ensuring the DB is ready
+    container.command = Some(vec!["/bin/sh".to_string()]);
+    container.args = Some(vec![
+        "-c".to_string(),
+        "horizon db upgrade || horizon db init".to_string(),
+    ]);
+
+    // Migration doesn't need ports or probes
+    container.ports = None;
+    container.liveness_probe = None;
+    container.readiness_probe = None;
+    container.startup_probe = None;
+    container.lifecycle = None;
+
+    // Use slightly less resources for migration if desired, but reusing main ones is safer
+    container
 }
 // ============================================================================
 // HorizontalPodAutoscaler
