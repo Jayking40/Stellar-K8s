@@ -1,4 +1,3 @@
-
 //! Main reconciler for StellarNode resources
 //!
 //! Implements the controller pattern using kube-rs runtime.
@@ -49,9 +48,14 @@ use super::health;
 use super::mtls;
 use super::remediation;
 use super::resources;
+#[cfg(feature = "metrics")]
+use super::metrics;
 use super::vsl;
 
 
+// Constants
+#[allow(dead_code)]
+const ARCHIVE_RETRIES_ANNOTATION: &str = "stellar.org/archive-health-retries";
 
 /// Shared state for the controller
 ///
@@ -93,7 +97,13 @@ pub struct ControllerState {
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     let client = Client::try_default().await?;
-///     let state = Arc::new(ControllerState { client });
+///     let state = Arc::new(ControllerState {
+///         client,
+///         enable_mtls: false,
+///         mtls_config: None,
+///         operator_namespace: "stellar-operator".to_string(),
+///         dry_run: false,
+///     });
 ///     run_controller(state).await?;
 ///     Ok(())
 /// }
@@ -326,6 +336,38 @@ async fn apply_stellar_node(
         // Still create resources but with 0 replicas
     }
 
+    // Handle Horizon database migrations
+    if node.spec.node_type == NodeType::Horizon {
+        if let Some(horizon_config) = &node.spec.horizon_config {
+            if horizon_config.auto_migration {
+                let current_version = &node.spec.version;
+                let last_migrated = node
+                    .status
+                    .as_ref()
+                    .and_then(|s| s.last_migrated_version.as_ref());
+
+                if last_migrated.map(|v| v != current_version).unwrap_or(true) {
+                    info!(
+                        "Database migration required for Horizon {}/{} (version: {})",
+                        namespace, name, current_version
+                    );
+
+                    emit_event(
+                        client,
+                        node,
+                        "Normal",
+                        "DatabaseMigrationRequired",
+                        &format!(
+                            "Database migration will be performed via InitContainer for version {}",
+                            current_version
+                        ),
+                    )
+                    .await?;
+                }
+            }
+        }
+    }
+
     // History Archive Health Check for Validators
     if node.spec.node_type == NodeType::Validator {
         if let Some(validator_config) = &node.spec.validator_config {
@@ -511,6 +553,14 @@ async fn apply_stellar_node(
     })
     .await?;
 
+    // 5a. MetalLB / LoadBalancer
+    apply_or_emit(ctx, node, ActionType::Update, "MetalLB configuration", async {
+        resources::ensure_metallb_config(client, node).await?;
+        resources::ensure_load_balancer_service(client, node).await?;
+        Ok(())
+    })
+    .await?;
+
     // 6. Autoscaling and Monitoring
     apply_or_emit(ctx, node, ActionType::Update, "Monitoring and Scaling resources", async {
         if node.spec.autoscaling.is_some() {
@@ -530,7 +580,6 @@ async fn apply_stellar_node(
         Ok(())
     })
     .await?;
-
 
     debug!(
         "Health check result for {}/{}: healthy={}, synced={}, message={}",
@@ -637,6 +686,36 @@ async fn apply_stellar_node(
     })
     .await?;
 
+    // 9. Update status to Running with ready replica count
+    // 9. Update ledger sequence metric if available
+    if let Some(ref status) = node.status {
+        #[cfg(feature = "metrics")]
+        if let Some(seq) = status.ledger_sequence {
+            metrics::set_ledger_sequence(
+                &namespace,
+                &name,
+                &node.spec.node_type.to_string(),
+                node.spec.network.passphrase(),
+                seq,
+            );
+
+            // Calculate ingestion lag if we can get the latest network ledger
+            // For now we assume we have a way to track the "latest" known ledger across the cluster
+            // or fetch it from a public horizon.
+            if let Ok(network_latest) = get_latest_network_ledger(&node.spec.network).await {
+                let lag = (network_latest as i64) - (seq as i64);
+                metrics::set_ingestion_lag(
+                    &namespace,
+                    &name,
+                    &node.spec.node_type.to_string(),
+                    node.spec.network.passphrase(),
+                    lag.max(0),
+                );
+            }
+        }
+    }
+
+    // 10. Update status to Running with ready replica count
     Ok(Action::requeue(Duration::from_secs(if phase == "Ready" {
         60
     } else {
@@ -698,6 +777,18 @@ async fn cleanup_stellar_node(
     apply_or_emit(ctx, node, ActionType::Delete, "NetworkPolicy", async {
         if let Err(e) = resources::delete_network_policy(client, node).await {
             warn!("Failed to delete NetworkPolicy: {:?}", e);
+        }
+        Ok(())
+    })
+    .await?;
+
+    // 3b. Delete MetalLB LoadBalancer Service
+    apply_or_emit(ctx, node, ActionType::Delete, "MetalLB LoadBalancer", async {
+        if let Err(e) = resources::delete_load_balancer_service(client, node).await {
+            warn!("Failed to delete MetalLB LoadBalancer service: {:?}", e);
+        }
+        if let Err(e) = resources::delete_metallb_config(client, node).await {
+            warn!("Failed to delete MetalLB configuration: {:?}", e);
         }
         Ok(())
     })
@@ -832,6 +923,7 @@ async fn update_suspended_status(client: &Client, node: &StellarNode) -> Result<
     }
 
     let status = StellarNodeStatus {
+        #[allow(deprecated)]
         phase: "Suspended".to_string(),
         message: Some("Node suspended - scaled to 0 replicas".to_string()),
         observed_generation: node.metadata.generation,
@@ -1224,6 +1316,7 @@ async fn update_status_with_health(
     }
 
     let status = StellarNodeStatus {
+        #[allow(deprecated)]
         phase: phase.to_string(),
         message: message.map(String::from),
         observed_generation: node.metadata.generation,
@@ -1238,6 +1331,13 @@ async fn update_status_with_health(
             0
         },
         ledger_sequence: health.ledger_sequence,
+        last_migrated_version: if health.synced && node.spec.node_type == NodeType::Horizon {
+            Some(node.spec.version.clone())
+        } else {
+            node.status
+                .as_ref()
+                .and_then(|s| s.last_migrated_version.clone())
+        },
         conditions,
         ..Default::default()
     };
@@ -1292,4 +1392,16 @@ fn error_policy(node: Arc<StellarNode>, error: &Error, _ctx: Arc<ControllerState
     };
 
     Action::requeue(retry_duration)
+}
+
+/// Fetch the latest ledger sequence from the target network's public horizon
+/// Used for calculating ingestion lag metrics
+async fn get_latest_network_ledger(network: &crate::crd::StellarNetwork) -> Result<u64> {
+    // For now, return a fixed value or a mock result until fully implemented
+    // In a real implementation, this would query horizon.stellar.org, etc.
+    match network {
+        crate::crd::StellarNetwork::Mainnet => Ok(100), // Placeholder
+        crate::crd::StellarNetwork::Testnet => Ok(100), // Placeholder
+        _ => Ok(0),
+    }
 }
