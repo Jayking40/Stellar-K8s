@@ -1348,7 +1348,7 @@ async fn get_latest_network_ledger(network: &crate::crd::StellarNetwork) -> Resu
     let client = reqwest::Client::new();
     let resp = client.get(url).send().await.map_err(Error::HttpError)?;
     let json: serde_json::Value = resp
-        .json::<serde_json::Value>()
+        .json()
         .await
         .map_err(|e| Error::ConfigError(e.to_string()))?;
 

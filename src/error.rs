@@ -63,6 +63,14 @@ pub enum Error {
     /// Webhook server error
     #[error("Webhook error: {0}")]
     WebhookError(String),
+
+    /// Rcgen certificate generation error
+    #[error("Certificate generation error: {0}")]
+    RcgenError(#[from] rcgen::Error),
+
+    /// IO error
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
 }
 
 /// Result type alias for operator operations
