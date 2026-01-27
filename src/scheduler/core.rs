@@ -1,9 +1,9 @@
-use kube::{Client, Api, ResourceExt, api::PostParams};
-use k8s_openapi::api::core::v1::{Pod, Node, Binding};
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use tokio::time::{sleep, Duration};
-use tracing::{info, warn, error};
 use anyhow::Result;
+use k8s_openapi::api::core::v1::{Binding, Node, Pod};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use kube::{api::PostParams, Api, Client, ResourceExt};
+use tokio::time::{sleep, Duration};
+use tracing::{error, info, warn};
 
 use super::scoring;
 
@@ -37,15 +37,17 @@ impl Scheduler {
 
         // List all pods and filter for our scheduler and unscheduled
         let all_pods = pods.list(&kube::api::ListParams::default()).await?;
-        
+
         let mut candidates = Vec::new();
         for p in all_pods {
             let spec = match &p.spec {
                 Some(s) => s,
                 None => continue,
             };
-            
-            if spec.scheduler_name.as_deref() == Some(&self.scheduler_name) && spec.node_name.is_none() {
+
+            if spec.scheduler_name.as_deref() == Some(&self.scheduler_name)
+                && spec.node_name.is_none()
+            {
                 candidates.push(p);
             }
         }
@@ -93,15 +95,18 @@ impl Scheduler {
     fn filter_nodes<'a>(&self, _pod: &Pod, nodes: &'a [Node]) -> Vec<&'a Node> {
         // TODO: Implement actual resource filtering (CPU/Mem)
         // For now, return all schedulable nodes
-        nodes.iter().filter(|n| {
-            // Check for unschedulable taint/flag
-            if let Some(spec) = &n.spec {
-                if spec.unschedulable == Some(true) {
-                    return false;
+        nodes
+            .iter()
+            .filter(|n| {
+                // Check for unschedulable taint/flag
+                if let Some(spec) = &n.spec {
+                    if spec.unschedulable == Some(true) {
+                        return false;
+                    }
                 }
-            }
-            true
-        }).collect()
+                true
+            })
+            .collect()
     }
 
     async fn bind_pod(&self, pod: &Pod, node: &Node) -> Result<()> {
@@ -129,8 +134,10 @@ impl Scheduler {
 
         // Create binding subresource
         let pp = PostParams::default();
-        let _: Binding = pods.create_subresource("binding", &pod_name, &pp, binding_bytes).await?;
-        
+        let _: Binding = pods
+            .create_subresource("binding", &pod_name, &pp, binding_bytes)
+            .await?;
+
         info!("Successfully bound {} to {}", pod_name, node_name);
         Ok(())
     }

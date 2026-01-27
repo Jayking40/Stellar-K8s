@@ -66,9 +66,15 @@ async fn main() -> Result<(), Error> {
 
     // If --scheduler flag is set, run the latency-aware scheduler instead
     if args.scheduler {
-        info!("Running in scheduler mode with name: {}", args.scheduler_name);
+        info!(
+            "Running in scheduler mode with name: {}",
+            args.scheduler_name
+        );
         let scheduler = stellar_k8s::scheduler::core::Scheduler::new(client, args.scheduler_name);
-        return scheduler.run().await.map_err(|e| Error::ConfigError(e.to_string()));
+        return scheduler
+            .run()
+            .await
+            .map_err(|e| Error::ConfigError(e.to_string()));
     }
 
     let client_clone = client.clone();
