@@ -32,6 +32,9 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
         )?;
     }
 
+    let operator_yaml = operator_manifest(&image);
+    let _cleanup = Cleanup::new(operator_yaml.clone());
+
     run_cmd("kubectl", &["apply", "-f", "config/crd/stellarnode-crd.yaml"])?;
     run_cmd(
         "kubectl",
@@ -39,7 +42,7 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
     )
     .and_then(|output| kubectl_apply(&output))?;
 
-    kubectl_apply(&operator_manifest(&image))?;
+    kubectl_apply(&operator_yaml)?;
     run_cmd(
         "kubectl",
         &[
@@ -58,7 +61,7 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
     )
     .and_then(|output| kubectl_apply(&output))?;
 
-    kubectl_apply(&soroban_node_manifest("v21.0.0", 1, true))?;
+    kubectl_apply(&soroban_node_manifest("v21.0.0", 1, false))?;
     wait_for("StellarNode exists", Duration::from_secs(60), || {
         Ok(run_cmd(
             "kubectl",
@@ -81,6 +84,42 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
         .is_ok())
     })?;
 
+    wait_for("Service created", Duration::from_secs(60), || {
+        Ok(run_cmd(
+            "kubectl",
+            &["get", "service", NODE_NAME, "-n", TEST_NAMESPACE],
+        )
+        .is_ok())
+    })?;
+
+    wait_for("ConfigMap created", Duration::from_secs(60), || {
+        Ok(run_cmd(
+            "kubectl",
+            &[
+                "get",
+                "configmap",
+                &format!("{}-config", NODE_NAME),
+                "-n",
+                TEST_NAMESPACE,
+            ],
+        )
+        .is_ok())
+    })?;
+
+    wait_for("PVC created", Duration::from_secs(60), || {
+        Ok(run_cmd(
+            "kubectl",
+            &[
+                "get",
+                "pvc",
+                &format!("{}-data", NODE_NAME),
+                "-n",
+                TEST_NAMESPACE,
+            ],
+        )
+        .is_ok())
+    })?;
+
     let current_image = run_cmd(
         "kubectl",
         &[
@@ -93,7 +132,7 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
             "jsonpath={.spec.template.spec.containers[0].image}",
         ],
     )?;
-    if !current_image.contains("stellar/soroban-rpc:v21.0.0") {
+    if current_image != "stellar/soroban-rpc:v21.0.0" {
         return Err(format!(
             "unexpected node image after create: {}",
             current_image
@@ -129,7 +168,23 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
                 "jsonpath={.spec.template.spec.containers[0].image}",
             ],
         )?;
-        Ok(image.contains("stellar/soroban-rpc:v22.0.0"))
+        Ok(image == "stellar/soroban-rpc:v22.0.0")
+    })?;
+
+    wait_for("Deployment scaled", Duration::from_secs(60), || {
+        let replicas = run_cmd(
+            "kubectl",
+            &[
+                "get",
+                "deployment",
+                NODE_NAME,
+                "-n",
+                TEST_NAMESPACE,
+                "-o",
+                "jsonpath={.spec.replicas}",
+            ],
+        )?;
+        Ok(replicas == "2")
     })?;
 
     run_cmd(
@@ -156,9 +211,25 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
         );
         let pvc = run_cmd(
             "kubectl",
-            &["get", "pvc", NODE_NAME, "-n", TEST_NAMESPACE],
+            &[
+                "get",
+                "pvc",
+                &format!("{}-data", NODE_NAME),
+                "-n",
+                TEST_NAMESPACE,
+            ],
         );
-        Ok(deployment.is_err() && service.is_err() && pvc.is_err())
+        let config_map = run_cmd(
+            "kubectl",
+            &[
+                "get",
+                "configmap",
+                &format!("{}-config", NODE_NAME),
+                "-n",
+                TEST_NAMESPACE,
+            ],
+        );
+        Ok(deployment.is_err() && service.is_err() && pvc.is_err() && config_map.is_err())
     })?;
 
     Ok(())
@@ -207,6 +278,8 @@ fn run_cmd_with_stdin(program: &str, args: &[&str], input: &str) -> Result<(), B
     if let Some(mut stdin) = child.stdin.take() {
         use std::io::Write;
         stdin.write_all(input.as_bytes())?;
+        stdin.flush()?;
+        drop(stdin);
     }
     let output = child.wait_with_output()?;
     if !output.status.success() {
@@ -226,12 +299,20 @@ where
     F: FnMut() -> Result<bool, Box<dyn Error>>,
 {
     let start = Instant::now();
+    let mut attempts: u32 = 0;
     loop {
         if condition()? {
             return Ok(());
         }
+        attempts += 1;
         if start.elapsed() > timeout {
-            return Err(format!("timeout while waiting for {}", label).into());
+            return Err(
+                format!(
+                    "timeout while waiting for {} after {:?} (attempts={})",
+                    label, timeout, attempts
+                )
+                .into(),
+            );
         }
         sleep(Duration::from_secs(3));
     }
@@ -339,6 +420,57 @@ spec:
         operator_namespace = OPERATOR_NAMESPACE,
         image = image
     )
+}
+
+struct Cleanup {
+    operator_manifest: String,
+}
+
+impl Cleanup {
+    fn new(operator_manifest: String) -> Self {
+        Self { operator_manifest }
+    }
+}
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        let _ = run_cmd_with_stdin_quiet("kubectl", &["delete", "-f", "-"], &self.operator_manifest);
+        let _ = run_cmd_quiet(
+            "kubectl",
+            &["delete", "namespace", TEST_NAMESPACE, "--ignore-not-found=true"],
+        );
+        let _ = run_cmd_quiet(
+            "kubectl",
+            &["delete", "namespace", OPERATOR_NAMESPACE, "--ignore-not-found=true"],
+        );
+    }
+}
+
+fn run_cmd_quiet(program: &str, args: &[&str]) -> Result<(), Box<dyn Error>> {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    if let Ok(kubeconfig) = std::env::var("KUBECONFIG") {
+        cmd.env("KUBECONFIG", kubeconfig);
+    }
+    let _ = cmd.output();
+    Ok(())
+}
+
+fn run_cmd_with_stdin_quiet(program: &str, args: &[&str], input: &str) -> Result<(), Box<dyn Error>> {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    if let Ok(kubeconfig) = std::env::var("KUBECONFIG") {
+        cmd.env("KUBECONFIG", kubeconfig);
+    }
+    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(input.as_bytes());
+        let _ = stdin.flush();
+        drop(stdin);
+    }
+    let _ = child.wait_with_output();
+    Ok(())
 }
 
 fn soroban_node_manifest(version: &str, replicas: i32, suspended: bool) -> String {
