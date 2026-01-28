@@ -18,7 +18,8 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
     let cluster_name = std::env::var("KIND_CLUSTER_NAME").unwrap_or_else(|_| "stellar-e2e".into());
     ensure_kind_cluster(&cluster_name)?;
 
-    let image = std::env::var("E2E_OPERATOR_IMAGE").unwrap_or_else(|_| "stellar-operator:e2e".into());
+    let image =
+        std::env::var("E2E_OPERATOR_IMAGE").unwrap_or_else(|_| "stellar-operator:e2e".into());
     let build_image = env_true("E2E_BUILD_IMAGE", true);
     let load_image = env_true("E2E_LOAD_IMAGE", true);
 
@@ -35,10 +36,20 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
     let operator_yaml = operator_manifest(&image);
     let _cleanup = Cleanup::new(operator_yaml.clone());
 
-    run_cmd("kubectl", &["apply", "-f", "config/crd/stellarnode-crd.yaml"])?;
     run_cmd(
         "kubectl",
-        &["create", "namespace", OPERATOR_NAMESPACE, "--dry-run=client", "-o", "yaml"],
+        &["apply", "-f", "config/crd/stellarnode-crd.yaml"],
+    )?;
+    run_cmd(
+        "kubectl",
+        &[
+            "create",
+            "namespace",
+            OPERATOR_NAMESPACE,
+            "--dry-run=client",
+            "-o",
+            "yaml",
+        ],
     )
     .and_then(|output| kubectl_apply(&output))?;
 
@@ -57,7 +68,14 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
 
     run_cmd(
         "kubectl",
-        &["create", "namespace", TEST_NAMESPACE, "--dry-run=client", "-o", "yaml"],
+        &[
+            "create",
+            "namespace",
+            TEST_NAMESPACE,
+            "--dry-run=client",
+            "-o",
+            "yaml",
+        ],
     )
     .and_then(|output| kubectl_apply(&output))?;
 
@@ -65,13 +83,7 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
     wait_for("StellarNode exists", Duration::from_secs(60), || {
         Ok(run_cmd(
             "kubectl",
-            &[
-                "get",
-                "stellarnode",
-                NODE_NAME,
-                "-n",
-                TEST_NAMESPACE,
-            ],
+            &["get", "stellarnode", NODE_NAME, "-n", TEST_NAMESPACE],
         )
         .is_ok())
     })?;
@@ -133,11 +145,7 @@ fn e2e_kind_install_crud_upgrade_delete() -> Result<(), Box<dyn Error>> {
         ],
     )?;
     if current_image != "stellar/soroban-rpc:v21.0.0" {
-        return Err(format!(
-            "unexpected node image after create: {}",
-            current_image
-        )
-        .into());
+        return Err(format!("unexpected node image after create: {}", current_image).into());
     }
 
     run_cmd(
@@ -274,7 +282,11 @@ fn run_cmd_with_stdin(program: &str, args: &[&str], input: &str) -> Result<(), B
     if let Ok(kubeconfig) = std::env::var("KUBECONFIG") {
         cmd.env("KUBECONFIG", kubeconfig);
     }
-    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
     if let Some(mut stdin) = child.stdin.take() {
         use std::io::Write;
         stdin.write_all(input.as_bytes())?;
@@ -306,13 +318,11 @@ where
         }
         attempts += 1;
         if start.elapsed() > timeout {
-            return Err(
-                format!(
-                    "timeout while waiting for {} after {:?} (attempts={})",
-                    label, timeout, attempts
-                )
-                .into(),
-            );
+            return Err(format!(
+                "timeout while waiting for {} after {:?} (attempts={})",
+                label, timeout, attempts
+            )
+            .into());
         }
         sleep(Duration::from_secs(3));
     }
@@ -434,14 +444,25 @@ impl Cleanup {
 
 impl Drop for Cleanup {
     fn drop(&mut self) {
-        let _ = run_cmd_with_stdin_quiet("kubectl", &["delete", "-f", "-"], &self.operator_manifest);
+        let _ =
+            run_cmd_with_stdin_quiet("kubectl", &["delete", "-f", "-"], &self.operator_manifest);
         let _ = run_cmd_quiet(
             "kubectl",
-            &["delete", "namespace", TEST_NAMESPACE, "--ignore-not-found=true"],
+            &[
+                "delete",
+                "namespace",
+                TEST_NAMESPACE,
+                "--ignore-not-found=true",
+            ],
         );
         let _ = run_cmd_quiet(
             "kubectl",
-            &["delete", "namespace", OPERATOR_NAMESPACE, "--ignore-not-found=true"],
+            &[
+                "delete",
+                "namespace",
+                OPERATOR_NAMESPACE,
+                "--ignore-not-found=true",
+            ],
         );
     }
 }
@@ -456,13 +477,21 @@ fn run_cmd_quiet(program: &str, args: &[&str]) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run_cmd_with_stdin_quiet(program: &str, args: &[&str], input: &str) -> Result<(), Box<dyn Error>> {
+fn run_cmd_with_stdin_quiet(
+    program: &str,
+    args: &[&str],
+    input: &str,
+) -> Result<(), Box<dyn Error>> {
     let mut cmd = Command::new(program);
     cmd.args(args);
     if let Ok(kubeconfig) = std::env::var("KUBECONFIG") {
         cmd.env("KUBECONFIG", kubeconfig);
     }
-    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
     if let Some(mut stdin) = child.stdin.take() {
         use std::io::Write;
         let _ = stdin.write_all(input.as_bytes());
