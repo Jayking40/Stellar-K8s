@@ -981,33 +981,32 @@ spec:
         data.insert("bgp-advertisement.yaml".to_string(), bgp_advertisement_yaml);
 
         // Generate BGPPeer YAML for each peer
-        let peers_yaml: String = bgp_cfg
-            .peers
-            .iter()
-            .enumerate()
-            .map(|(i, peer)| {
-                let password_ref = peer.password_secret_ref.as_ref().map(|s| {
-                    format!(
-                        r#"  password:
+        let mut peers_yaml = String::new();
+        for (i, peer) in bgp_cfg.peers.iter().enumerate() {
+            let password_ref = peer.password_secret_ref.as_ref().map(|s| {
+                format!(
+                    r#"  password:
     secretRef:
       name: {}
       key: {}"#,
-                        s.name, s.key
-                    )
-                });
+                    s.name, s.key
+                )
+            });
 
-                let bfd_profile = if bgp_cfg.bfd_enabled {
-                    bgp_cfg
-                        .bfd_profile
-                        .as_ref()
-                        .map(|p| format!("  bfdProfile: {}", p))
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                };
+            let bfd_profile = if bgp_cfg.bfd_enabled {
+                bgp_cfg
+                    .bfd_profile
+                    .as_ref()
+                    .map(|p| format!("  bfdProfile: {}", p))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
 
-                format!(
-                    r#"---
+            use std::fmt::Write;
+            write!(
+                peers_yaml,
+                r#"---
 # BGPPeer {} for {}
 apiVersion: metallb.io/v1beta2
 kind: BGPPeer
@@ -1024,22 +1023,22 @@ spec:
   ebgpMultiHop: {}
 {}{}
 "#,
-                    i + 1,
-                    node.name_any(),
-                    node.name_any(),
-                    i,
-                    bgp_cfg.local_asn,
-                    peer.asn,
-                    peer.address,
-                    peer.port,
-                    peer.hold_time,
-                    peer.keepalive_time,
-                    peer.ebgp_multi_hop,
-                    password_ref.unwrap_or_default(),
-                    bfd_profile
-                )
-            })
-            .collect();
+                i + 1,
+                node.name_any(),
+                node.name_any(),
+                i,
+                bgp_cfg.local_asn,
+                peer.asn,
+                peer.address,
+                peer.port,
+                peer.hold_time,
+                peer.keepalive_time,
+                peer.ebgp_multi_hop,
+                password_ref.unwrap_or_default(),
+                bfd_profile
+            )
+            .unwrap();
+        }
 
         data.insert("bgp-peers.yaml".to_string(), peers_yaml);
     }

@@ -6,9 +6,9 @@
 #[cfg(test)]
 mod stellar_node_spec_validation {
     use crate::crd::{
-        AutoscalingConfig, HistoryMode, HorizonConfig, IngressConfig, IngressHost, IngressPath,
-        NodeType, ResourceRequirements, ResourceSpec, SorobanConfig, SpecValidationError,
-        StellarNetwork, StellarNodeSpec, StorageConfig, ValidatorConfig,
+        AutoscalingConfig, HorizonConfig, IngressConfig, IngressHost, IngressPath, NodeType,
+        ResourceRequirements, ResourceSpec, SorobanConfig, SpecValidationError, StellarNetwork,
+        StellarNodeSpec, StorageConfig, ValidatorConfig,
     };
 
     /// Helper to create a minimal valid StellarNodeSpec for a Validator
