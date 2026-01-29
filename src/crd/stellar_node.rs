@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use super::types::{
     AutoscalingConfig, Condition, CrossClusterConfig, DisasterRecoveryConfig,
-    DisasterRecoveryStatus, ExternalDatabaseConfig, GlobalDiscoveryConfig, HorizonConfig,
-    IngressConfig, LoadBalancerConfig, NetworkPolicyConfig, NodeType, ResourceRequirements,
+    DisasterRecoveryStatus, ExternalDatabaseConfig, GlobalDiscoveryConfig, HistoryMode,
+    HorizonConfig, IngressConfig, LoadBalancerConfig, NetworkPolicyConfig, NodeType, ResourceRequirements,
     RetentionPolicy, RolloutStrategy, SorobanConfig, StellarNetwork, StorageConfig,
     ValidatorConfig,
 };
@@ -95,6 +95,12 @@ pub struct StellarNodeSpec {
 
     /// Container image version to use (e.g., "v21.0.0")
     pub version: String,
+
+    /// History retention mode (Full or Recent)
+    /// - Full: Keeps complete history (archive node)
+    /// - Recent: Keeps strictly necessary history (lighter)
+    #[serde(default)]
+    pub history_mode: HistoryMode,
 
     /// Compute resource requirements (CPU and memory)
     #[serde(default)]
