@@ -207,6 +207,8 @@ async fn emit_spec_validation_event(
 ) -> Result<()> {
     let message = format_spec_validation_errors(errors);
     emit_event(client, node, "Warning", "SpecValidationFailed", &message).await
+}
+
 /// Action types for apply_or_emit helper
 #[derive(Debug, Clone, Copy)]
 pub enum ActionType {
@@ -306,6 +308,14 @@ async fn apply_stellar_node(
     apply_or_emit(ctx, node, ActionType::Update, "PVC and ConfigMap", async {
         resources::ensure_pvc(client, node).await?;
         resources::ensure_config_map(client, node, None, ctx.enable_mtls).await?;
+        Ok(())
+    })
+    .await?;
+
+    // 1a. Managed Database (CloudNativePG)
+    apply_or_emit(ctx, node, ActionType::Update, "Managed Database", async {
+        resources::ensure_cnpg_cluster(client, node).await?;
+        resources::ensure_cnpg_pooler(client, node).await?;
         Ok(())
     })
     .await?;
@@ -875,6 +885,15 @@ async fn cleanup_stellar_node(
     info!("Cleaning up StellarNode: {}/{}", namespace, name);
 
     // Delete resources in reverse order of creation
+
+    // 0a. Delete Managed Database Resources
+    apply_or_emit(ctx, node, ActionType::Delete, "Managed Database", async {
+        if let Err(e) = resources::delete_cnpg_resources(client, node).await {
+            warn!("Failed to delete CNPG resources: {:?}", e);
+        }
+        Ok(())
+    })
+    .await?;
 
     // 0. Delete Alerting
     apply_or_emit(ctx, node, ActionType::Delete, "Alerting", async {

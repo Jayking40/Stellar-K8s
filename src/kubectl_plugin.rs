@@ -490,6 +490,7 @@ mod tests {
     use stellar_k8s::controller::conditions::{CONDITION_STATUS_TRUE, CONDITION_TYPE_READY};
     use stellar_k8s::crd::{Condition, NodeType, StellarNodeSpec, StellarNodeStatus};
 
+    #[allow(deprecated)]
     fn create_test_node(name: &str, namespace: &str, node_type: NodeType) -> StellarNode {
         use chrono::Utc;
         use stellar_k8s::crd::StellarNetwork;
@@ -514,6 +515,7 @@ mod tests {
                 node_type,
                 network: StellarNetwork::Testnet,
                 version: "v21.0.0".to_string(),
+                history_mode: Default::default(),
                 replicas: 1,
                 resources: Default::default(),
                 storage: Default::default(),
@@ -525,6 +527,7 @@ mod tests {
                 suspended: false,
                 alerting: false,
                 database: None,
+                managed_database: None,
                 autoscaling: None,
                 ingress: None,
                 strategy: Default::default(),
@@ -532,10 +535,7 @@ mod tests {
                 network_policy: None,
                 dr_config: None,
                 topology_spread_constraints: None,
-                load_balancer: None,
-                global_discovery: None,
-                cluster: None,
-                cross_cluster: None,
+                resource_meta: None,
             },
             status: Some(StellarNodeStatus {
                 #[allow(deprecated)]

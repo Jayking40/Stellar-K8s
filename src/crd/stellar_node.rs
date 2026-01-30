@@ -3,17 +3,17 @@
 //! The StellarNode CRD represents a managed Stellar infrastructure node.
 //! Supports Validator (Core), Horizon API, and Soroban RPC node types.
 
-use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::types::{
     AutoscalingConfig, Condition, CrossClusterConfig, DisasterRecoveryConfig,
-    DisasterRecoveryStatus, ExternalDatabaseConfig, GlobalDiscoveryConfig, HorizonConfig,
-    IngressConfig, LoadBalancerConfig, NetworkPolicyConfig, NodeType, ResourceRequirements,
-    RetentionPolicy, RolloutStrategy, SorobanConfig, StellarNetwork, StorageConfig,
-    ValidatorConfig,
+    DisasterRecoveryStatus, ExternalDatabaseConfig, GlobalDiscoveryConfig, HistoryMode,
+    HorizonConfig, IngressConfig, LoadBalancerConfig, NetworkPolicyConfig, NodeType,
+    ResourceRequirements, RetentionPolicy, RolloutStrategy, SorobanConfig, StellarNetwork,
+    StorageConfig, ValidatorConfig, ManagedDatabaseConfig,
 };
 
 /// Structured validation error for `StellarNodeSpec`
@@ -96,6 +96,12 @@ pub struct StellarNodeSpec {
     /// Container image version to use (e.g., "v21.0.0")
     pub version: String,
 
+    /// History retention mode (Full or Recent)
+    /// - Full: Keeps complete history (archive node)
+    /// - Recent: Keeps strictly necessary history (lighter)
+    #[serde(default)]
+    pub history_mode: HistoryMode,
+
     /// Compute resource requirements (CPU and memory)
     #[serde(default)]
     pub resources: ResourceRequirements,
@@ -151,6 +157,12 @@ pub struct StellarNodeSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub database: Option<ExternalDatabaseConfig>,
 
+    /// Managed database configuration for automated HA Postgres clusters
+    /// When provided, the operator will provision a CloudNativePG Cluster
+    /// and inject connection credentials into the container
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub managed_database: Option<ManagedDatabaseConfig>,
+
     /// Horizontal Pod Autoscaling configuration
     /// Only applicable to Horizon and SorobanRpc nodes
     /// Validators do not support autoscaling (always 1 replica)
@@ -184,24 +196,10 @@ pub struct StellarNodeSpec {
     pub topology_spread_constraints:
         Option<Vec<k8s_openapi::api::core::v1::TopologySpreadConstraint>>,
 
-    /// Load Balancer configuration for external access via MetalLB
+    /// Optional labels and annotations applied to all generated Kubernetes resources
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub load_balancer: Option<LoadBalancerConfig>,
-
-    /// Global node discovery configuration for Stellar network peering
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub global_discovery: Option<GlobalDiscoveryConfig>,
-
-    /// Cluster identifier for multi-cluster deployments
-    /// Used to identify which cluster this node belongs to for cross-cluster communication
-    /// Example: "us-east-1", "eu-west-1", "ap-south-1"
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cluster: Option<String>,
-
-    /// Cross-cluster communication configuration
-    /// Enables service mesh or ExternalName services for multi-cluster networking
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cross_cluster: Option<CrossClusterConfig>,
+    #[schemars(skip)]
+    pub resource_meta: Option<ObjectMeta>,
 }
 
 fn default_replicas() -> i32 {
@@ -231,6 +229,7 @@ impl StellarNodeSpec {
     /// # node_type: Default::default(),
     /// # network: Default::default(),
     /// # version: "v21".to_string(),
+    /// # history_mode: Default::default(),
     /// # resources: Default::default(),
     /// # storage: Default::default(),
     /// # validator_config: None,
@@ -242,6 +241,7 @@ impl StellarNodeSpec {
     /// # suspended: false,
     /// # alerting: false,
     /// # database: None,
+    /// # managed_database: None,
     /// # autoscaling: None,
     /// # ingress: None,
     /// # strategy: Default::default(),
@@ -249,10 +249,7 @@ impl StellarNodeSpec {
     /// # network_policy: None,
     /// # dr_config: None,
     /// # topology_spread_constraints: None,
-    /// # load_balancer: None,
-    /// # global_discovery: None,
-    /// # cluster: None,
-    /// # cross_cluster: None,
+    /// # resource_meta: None,
     /// };
     /// match spec.validate() {
     ///     Ok(_) => println!("Valid spec"),
@@ -265,6 +262,14 @@ impl StellarNodeSpec {
     /// ```
     pub fn validate(&self) -> Result<(), Vec<SpecValidationError>> {
         let mut errors: Vec<SpecValidationError> = Vec::new();
+
+        if self.database.is_some() && self.managed_database.is_some() {
+            errors.push(SpecValidationError::new(
+                "spec.database / spec.managedDatabase",
+                "Cannot specify both database (external) and managedDatabase",
+                "Choose either an external database using spec.database or a managed one using spec.managedDatabase.",
+            ));
+        }
 
         if self.min_available.is_some() && self.max_unavailable.is_some() {
             errors.push(SpecValidationError::new(
@@ -435,6 +440,7 @@ impl StellarNodeSpec {
     ///     node_type: NodeType::Validator,
     ///     version: "v21.0.0".to_string(),
     /// # network: Default::default(),
+    /// # history_mode: Default::default(),
     /// # resources: Default::default(),
     /// # storage: Default::default(),
     /// # validator_config: None,
@@ -446,6 +452,7 @@ impl StellarNodeSpec {
     /// # suspended: false,
     /// # alerting: false,
     /// # database: None,
+    /// # managed_database: None,
     /// # autoscaling: None,
     /// # ingress: None,
     /// # strategy: Default::default(),
@@ -453,10 +460,7 @@ impl StellarNodeSpec {
     /// # network_policy: None,
     /// # dr_config: None,
     /// # topology_spread_constraints: None,
-    /// # load_balancer: None,
-    /// # global_discovery: None,
-    /// # cluster: None,
-    /// # cross_cluster: None,
+    /// # resource_meta: None,
     /// };
     /// assert_eq!(spec.container_image(), "stellar/stellar-core:v21.0.0");
     /// ```
@@ -493,6 +497,7 @@ impl StellarNodeSpec {
     /// # node_type: Default::default(),
     /// # network: Default::default(),
     /// # version: "v21".to_string(),
+    /// # history_mode: Default::default(),
     /// # resources: Default::default(),
     /// # validator_config: None,
     /// # horizon_config: None,
@@ -503,6 +508,7 @@ impl StellarNodeSpec {
     /// # suspended: false,
     /// # alerting: false,
     /// # database: None,
+    /// # managed_database: None,
     /// # autoscaling: None,
     /// # ingress: None,
     /// # strategy: Default::default(),
@@ -510,10 +516,7 @@ impl StellarNodeSpec {
     /// # network_policy: None,
     /// # dr_config: None,
     /// # topology_spread_constraints: None,
-    /// # load_balancer: None,
-    /// # global_discovery: None,
-    /// # cluster: None,
-    /// # cross_cluster: None,
+    /// # resource_meta: None,
     /// };
     /// assert!(spec.should_delete_pvc());
     /// ```
@@ -1063,6 +1066,7 @@ mod tests {
             node_type: NodeType::Validator,
             network: StellarNetwork::Testnet,
             version: "v21.0.0".to_string(),
+            history_mode: Default::default(),
             resources: Default::default(),
             storage: Default::default(),
             validator_config: Some(ValidatorConfig {
@@ -1084,6 +1088,7 @@ mod tests {
             suspended: false,
             alerting: false,
             database: None,
+            managed_database: None,
             autoscaling: None,
             ingress: None,
             strategy: RolloutStrategy::Canary(CanaryConfig {
@@ -1109,6 +1114,7 @@ mod tests {
             node_type: NodeType::Horizon,
             network: StellarNetwork::Testnet,
             version: "v21.0.0".to_string(),
+            history_mode: Default::default(),
             resources: Default::default(),
             storage: Default::default(),
             validator_config: None,
@@ -1127,6 +1133,7 @@ mod tests {
             suspended: false,
             alerting: false,
             database: None,
+            managed_database: None,
             autoscaling: None,
             ingress: None,
             strategy: RolloutStrategy::Canary(CanaryConfig {
