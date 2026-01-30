@@ -3,6 +3,8 @@
 //! This module creates and manages the underlying Kubernetes resources
 //! (Deployments, StatefulSets, Services, PVCs, ConfigMaps) for each StellarNode.
 
+use crate::controller::resource_meta::merge_resource_meta;
+
 use std::collections::BTreeMap;
 
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec, StatefulSet, StatefulSetSpec};
@@ -124,18 +126,21 @@ fn build_pvc(node: &StellarNode) -> PersistentVolumeClaim {
     let annotations = node.spec.storage.annotations.clone().unwrap_or_default();
 
     PersistentVolumeClaim {
-        metadata: ObjectMeta {
-            name: Some(name),
-            namespace: node.namespace(),
-            labels: Some(labels),
-            annotations: if annotations.is_empty() {
-                None
-            } else {
-                Some(annotations)
+        metadata: merge_resource_meta(
+            ObjectMeta {
+                name: Some(name),
+                namespace: node.namespace(),
+                labels: Some(labels),
+                annotations: if annotations.is_empty() {
+                    None
+                } else {
+                    Some(annotations)
+                },
+                owner_references: Some(vec![owner_reference(node)]),
+                ..Default::default()
             },
-            owner_references: Some(vec![owner_reference(node)]),
-            ..Default::default()
-        },
+            &None,
+        ),
         spec: Some(PersistentVolumeClaimSpec {
             access_modes: Some(vec!["ReadWriteOnce".to_string()]),
             storage_class_name: Some(node.spec.storage.storage_class.clone()),
@@ -296,15 +301,25 @@ fn build_config_map(
         }
     }
 
+    let annotations = node.spec.storage.annotations.clone().unwrap_or_default();
+
     ConfigMap {
-        metadata: ObjectMeta {
-            name: Some(name),
-            namespace: node.namespace(),
-            labels: Some(labels),
-            owner_references: Some(vec![owner_reference(node)]),
-            ..Default::default()
-        },
-        data: Some(data),
+        metadata: merge_resource_meta(
+            ObjectMeta {
+                name: Some(name.clone()),
+                namespace: node.namespace(),
+                labels: Some(labels.clone()),
+                annotations: if annotations.is_empty() {
+                    None
+                } else {
+                    Some(annotations.clone()) // <-- use the extracted annotations
+                },
+                owner_references: Some(vec![owner_reference(node)]),
+                ..Default::default()
+            },
+            &None, // no extra ObjectMeta
+        ),
+        data: Some(data.clone()),
         ..Default::default()
     }
 }
@@ -420,13 +435,16 @@ fn build_deployment(node: &StellarNode, enable_mtls: bool) -> Deployment {
     };
 
     Deployment {
-        metadata: ObjectMeta {
-            name: Some(name.clone()),
-            namespace: node.namespace(),
-            labels: Some(labels.clone()),
-            owner_references: Some(vec![owner_reference(node)]),
-            ..Default::default()
-        },
+        metadata: merge_resource_meta(
+            ObjectMeta {
+                name: Some(name.clone()),
+                namespace: node.namespace(),
+                labels: Some(labels.clone()),
+                owner_references: Some(vec![owner_reference(node)]),
+                ..Default::default()
+            },
+            &None,
+        ),
         spec: Some(DeploymentSpec {
             replicas: Some(replicas),
             selector: LabelSelector {
@@ -483,19 +501,24 @@ fn build_statefulset(node: &StellarNode, enable_mtls: bool) -> StatefulSet {
         );
     }
 
+    let annotations = node.spec.storage.annotations.clone().unwrap_or_default();
+
     StatefulSet {
-        metadata: ObjectMeta {
-            name: Some(name.clone()),
-            namespace: node.namespace(),
-            labels: Some(labels.clone()),
-            annotations: if annotations.is_empty() {
-                None
-            } else {
-                Some(annotations)
+        metadata: merge_resource_meta(
+            ObjectMeta {
+                name: Some(name.clone()),
+                namespace: node.namespace(),
+                labels: Some(labels.clone()),
+                annotations: if annotations.is_empty() {
+                    None
+                } else {
+                    Some(annotations)
+                },
+                owner_references: Some(vec![owner_reference(node)]),
+                ..Default::default()
             },
-            owner_references: Some(vec![owner_reference(node)]),
-            ..Default::default()
-        },
+            &None,
+        ),
         spec: Some(StatefulSetSpec {
             replicas: Some(replicas),
             selector: LabelSelector {
@@ -643,13 +666,16 @@ fn build_service(node: &StellarNode, enable_mtls: bool) -> Service {
     };
 
     Service {
-        metadata: ObjectMeta {
-            name: Some(name),
-            namespace: node.namespace(),
-            labels: Some(labels.clone()),
-            owner_references: Some(vec![owner_reference(node)]),
-            ..Default::default()
-        },
+        metadata: merge_resource_meta(
+            ObjectMeta {
+                name: Some(name),
+                namespace: node.namespace(),
+                labels: Some(labels.clone()),
+                owner_references: Some(vec![owner_reference(node)]),
+                ..Default::default()
+            },
+            &None,
+        ),
         spec: Some(ServiceSpec {
             selector: Some(labels),
             ports: Some(ports),
@@ -818,19 +844,24 @@ fn build_load_balancer_service(node: &StellarNode, config: &LoadBalancerConfig) 
         ExternalTrafficPolicy::Local => "Local".to_string(),
     };
 
+    let annotations = node.spec.storage.annotations.clone().unwrap_or_default();
+
     Service {
-        metadata: ObjectMeta {
-            name: Some(name),
-            namespace: node.namespace(),
-            labels: Some(labels.clone()),
-            annotations: if annotations.is_empty() {
-                None
-            } else {
-                Some(annotations)
+        metadata: merge_resource_meta(
+            ObjectMeta {
+                name: Some(name),
+                namespace: node.namespace(),
+                labels: Some(labels.clone()),
+                annotations: if annotations.is_empty() {
+                    None
+                } else {
+                    Some(annotations)
+                },
+                owner_references: Some(vec![owner_reference(node)]),
+                ..Default::default()
             },
-            owner_references: Some(vec![owner_reference(node)]),
-            ..Default::default()
-        },
+            &None,
+        ),
         spec: Some(ServiceSpec {
             type_: Some("LoadBalancer".to_string()),
             selector: Some(labels),
@@ -1117,15 +1148,24 @@ spec:
 
     data.insert("README.md".to_string(), instructions);
 
+    let annotations = node.spec.storage.annotations.clone().unwrap_or_default();
     ConfigMap {
-        metadata: ObjectMeta {
-            name: Some(name),
-            namespace: node.namespace(),
-            labels: Some(labels),
-            owner_references: Some(vec![owner_reference(node)]),
-            ..Default::default()
-        },
-        data: Some(data),
+        metadata: merge_resource_meta(
+            ObjectMeta {
+                name: Some(name.clone()),
+                namespace: node.namespace(),
+                labels: Some(labels.clone()),
+                annotations: if annotations.is_empty() {
+                    None
+                } else {
+                    Some(annotations.clone()) // <-- use the extracted annotations
+                },
+                owner_references: Some(vec![owner_reference(node)]),
+                ..Default::default()
+            },
+            &None, // no extra ObjectMeta
+        ),
+        data: Some(data.clone()),
         ..Default::default()
     }
 }
@@ -1323,19 +1363,24 @@ fn build_ingress(node: &StellarNode, config: &IngressConfig) -> Ingress {
         }]
     });
 
+    let annotations = node.spec.storage.annotations.clone().unwrap_or_default();
+
     Ingress {
-        metadata: ObjectMeta {
-            name: Some(name),
-            namespace: node.namespace(),
-            labels: Some(labels),
-            annotations: if annotations.is_empty() {
-                None
-            } else {
-                Some(annotations)
+        metadata: merge_resource_meta(
+            ObjectMeta {
+                name: Some(name),
+                namespace: node.namespace(),
+                labels: Some(labels),
+                annotations: if annotations.is_empty() {
+                    None
+                } else {
+                    Some(annotations)
+                },
+                owner_references: Some(vec![owner_reference(node)]),
+                ..Default::default()
             },
-            owner_references: Some(vec![owner_reference(node)]),
-            ..Default::default()
-        },
+            &node.spec.resource_meta,
+        ),
         spec: Some(IngressSpec {
             ingress_class_name: config.class_name.clone(),
             rules: Some(rules),
@@ -1522,10 +1567,13 @@ fn build_pod_template(
     }
 
     PodTemplateSpec {
-        metadata: Some(ObjectMeta {
-            labels: Some(labels.clone()),
-            ..Default::default()
-        }),
+        metadata: Some(merge_resource_meta(
+            ObjectMeta {
+                labels: Some(labels.clone()),
+                ..Default::default()
+            },
+            &node.spec.resource_meta,
+        )),
         spec: Some(pod_spec),
     }
 }
@@ -1858,13 +1906,16 @@ pub async fn ensure_alerting(client: &Client, node: &StellarNode) -> Result<()> 
     data.insert("alerts.yaml".to_string(), rules);
 
     let cm = ConfigMap {
-        metadata: ObjectMeta {
-            name: Some(name.clone()),
-            namespace: Some(namespace.clone()),
-            labels: Some(labels),
-            owner_references: Some(vec![owner_reference(node)]),
-            ..Default::default()
-        },
+        metadata: merge_resource_meta(
+            ObjectMeta {
+                name: Some(name.clone()),
+                namespace: Some(namespace.clone()),
+                labels: Some(labels),
+                owner_references: Some(vec![owner_reference(node)]),
+                ..Default::default()
+            },
+            &node.spec.resource_meta,
+        ),
         data: Some(data),
         ..Default::default()
     };
@@ -1978,13 +2029,16 @@ fn build_hpa(node: &StellarNode) -> Result<HorizontalPodAutoscaler> {
         });
 
     let hpa = HorizontalPodAutoscaler {
-        metadata: ObjectMeta {
-            name: Some(name),
-            namespace: Some(namespace),
-            labels: Some(standard_labels(node)),
-            owner_references: Some(vec![owner_reference(node)]),
-            ..Default::default()
-        },
+        metadata: merge_resource_meta(
+            ObjectMeta {
+                name: Some(name),
+                namespace: Some(namespace),
+                labels: Some(standard_labels(node)),
+                owner_references: Some(vec![owner_reference(node)]),
+                ..Default::default()
+            },
+            &node.spec.resource_meta,
+        ),
         spec: Some(HorizontalPodAutoscalerSpec {
             scale_target_ref: CrossVersionObjectReference {
                 api_version: Some("apps/v1".to_string()),
@@ -2283,13 +2337,16 @@ fn build_network_policy(node: &StellarNode, config: &NetworkPolicyConfig) -> Net
     }
 
     NetworkPolicy {
-        metadata: ObjectMeta {
-            name: Some(name),
-            namespace: node.namespace(),
-            labels: Some(labels),
-            owner_references: Some(vec![owner_reference(node)]),
-            ..Default::default()
-        },
+        metadata: merge_resource_meta(
+            ObjectMeta {
+                name: Some(name),
+                namespace: node.namespace(),
+                labels: Some(labels),
+                owner_references: Some(vec![owner_reference(node)]),
+                ..Default::default()
+            },
+            &node.spec.resource_meta,
+        ),
         spec: Some(NetworkPolicySpec {
             pod_selector: LabelSelector {
                 match_labels: Some(BTreeMap::from([
