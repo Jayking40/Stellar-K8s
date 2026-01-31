@@ -128,7 +128,7 @@ pub struct StellarNodeSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network_policy: Option<NetworkPolicyConfig>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dr_config: Option<DisasterRecoveryConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -229,6 +229,7 @@ impl StellarNodeSpec {
         // 3. Node Type Specific Logic
         match self.node_type {
             NodeType::Validator => {
+                // Validator config required
                 if self.validator_config.is_none() {
                     errors.push(SpecValidationError::new(
                         "spec.validatorConfig",
@@ -244,6 +245,8 @@ impl StellarNodeSpec {
                         ));
                     }
                 }
+
+                // Exactly 1 replica required
                 if self.replicas != 1 {
                     errors.push(SpecValidationError::new(
                         "spec.replicas",
@@ -265,6 +268,8 @@ impl StellarNodeSpec {
                         "Remove spec.autoscaling when nodeType is Validator; autoscaling is only supported for Horizon and SorobanRpc.",
                     ));
                 }
+
+                // Ingress not supported
                 if self.ingress.is_some() {
                     errors.push(SpecValidationError::new(
                         "spec.ingress",
@@ -277,10 +282,40 @@ impl StellarNodeSpec {
                         "spec.strategy",
                         "Canary rollout is not supported for Validator nodes",
                         "Use a non-canary rollout strategy (e.g., RollingUpdate) for Validator nodes.",
+
+                // Autoscaling not supported
+                if self.autoscaling.is_some() {
+                    errors.push(SpecValidationError::new(
+                        "spec.autoscaling",
+                        "autoscaling is not supported for Validator nodes",
+                        "Remove spec.autoscaling when nodeType is Validator; autoscaling is only supported for Horizon and SorobanRpc.",
+                    ));
+                }
+
+                // History archive validation
+                if let Some(ref validator_config) = self.validator_config {
+                    if validator_config.enable_history_archive
+                        && validator_config.history_archive_urls.is_empty()
+                    {
+                        errors.push(SpecValidationError::new(
+                            "spec.validatorConfig.historyArchiveUrls",
+                            "historyArchiveUrls must not be empty when enableHistoryArchive is true",
+                            "Provide at least one valid history archive URL in spec.validatorConfig.historyArchiveUrls when enableHistoryArchive is true.",
+                        ));
+                    }
+                }
+
+                // Canary strategy not supported
+                if matches!(self.strategy, RolloutStrategy::Canary(_)) {
+                    errors.push(SpecValidationError::new(
+                        "spec.strategy",
+                        "canary rollout strategy is not supported for Validator nodes",
+                        "Use RollingUpdate strategy for Validator nodes; canary is only supported for Horizon and SorobanRpc.",
                     ));
                 }
             }
             NodeType::Horizon => {
+                // Horizon config required
                 if self.horizon_config.is_none() {
                     errors.push(SpecValidationError::new(
                         "spec.horizonConfig",
@@ -309,6 +344,7 @@ impl StellarNodeSpec {
                 }
             }
             NodeType::SorobanRpc => {
+                // Soroban config required
                 if self.soroban_config.is_none() {
                     errors.push(SpecValidationError::new(
                         "spec.sorobanConfig",
@@ -336,6 +372,17 @@ impl StellarNodeSpec {
                     validate_ingress(ingress, &mut errors);
                 }
             }
+        }
+
+        // Validate optional features if present
+        if let Some(ref lb) = self.load_balancer {
+            validate_load_balancer(lb, &mut errors);
+        }
+        if let Some(ref gd) = self.global_discovery {
+            validate_global_discovery(gd, &mut errors);
+        }
+        if let Some(ref cc) = self.cross_cluster {
+            validate_cross_cluster(cc, &mut errors);
         }
 
         if errors.is_empty() {
@@ -934,6 +981,8 @@ mod tests {
             network_policy: None,
             dr_config: None,
             topology_spread_constraints: None,
+            load_balancer: None,
+            global_discovery: None,
             cross_cluster: None,
             cve_handling: None,
             resource_meta: None,
