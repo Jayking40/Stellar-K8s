@@ -315,8 +315,7 @@ mod tests {
         ];
 
         // Serialise (as done in update_peers_config_map)
-        let json_values: Vec<serde_json::Value> =
-            original.iter().map(|p| p.to_json()).collect();
+        let json_values: Vec<serde_json::Value> = original.iter().map(|p| p.to_json()).collect();
         let json_str = serde_json::to_string_pretty(&json_values).unwrap();
 
         // Deserialise (as done in get_peers_from_config_map)
