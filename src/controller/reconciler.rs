@@ -691,6 +691,20 @@ pub(crate) async fn apply_stellar_node(
     )
     .await?;
 
+    // 5b. Read-Only Replica Pools
+    apply_or_emit(
+        ctx,
+        node,
+        ActionType::Update,
+        "Read-Only Replica Pool",
+        async {
+            crate::controller::read_pool::ensure_read_pool(client, node, ctx.enable_mtls).await?;
+            crate::controller::traffic::reconcile_traffic_routing(client, node).await?;
+            Ok(())
+        },
+    )
+    .await?;
+
     // 6. Autoscaling and Monitoring
     apply_or_emit(
         ctx,

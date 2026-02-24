@@ -3,7 +3,7 @@
 //! This module defines the Kubernetes CRDs for managing Stellar infrastructure.
 
 mod cnpg;
-mod read_replica;
+pub mod read_replica;
 mod stellar_node;
 mod types;
 

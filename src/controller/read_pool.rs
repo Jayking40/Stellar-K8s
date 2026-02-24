@@ -1,17 +1,16 @@
 use k8s_openapi::api::apps::v1::{StatefulSet, StatefulSetSpec};
 use k8s_openapi::api::core::v1::{
-    ConfigMap, Container, ContainerPort, EnvVar, KeyToPath, PodSpec, PodTemplateSpec,
-    Volume, VolumeMount,
+    ConfigMap, Container, ContainerPort, PodSpec, PodTemplateSpec, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use kube::{
     api::{Api, Patch, PatchParams},
-    Client, Resource, ResourceExt,
+    Client, ResourceExt,
 };
 use std::collections::BTreeMap;
 use tracing::{info, instrument};
 
-use crate::crd::{StellarNode, ReadReplicaConfig, NodeType};
+use crate::crd::{ReadReplicaConfig, StellarNode};
 use crate::error::Result;
 
 /// Ensure the read-only replica pool exists and is configured correctly
@@ -28,7 +27,7 @@ pub async fn ensure_read_pool(
 
     let config = node.spec.read_replica_config.as_ref().unwrap();
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
-    
+
     // Ensure the ConfigMap with startup script exists
     ensure_read_config_map(client, node).await?;
 
@@ -45,19 +44,24 @@ pub async fn ensure_read_pool(
     )
     .await?;
 
-    info!("Read-only replica pool (StatefulSet) ensured for {}/{}", namespace, name);
+    info!(
+        "Read-only replica pool (StatefulSet) ensured for {}/{}",
+        namespace, name
+    );
 
     Ok(())
 }
 
 async fn delete_read_pool(client: &Client, node: &StellarNode) -> Result<()> {
     let namespace = node.namespace().unwrap_or_else(|| "default".to_string());
-    
+
     // Delete StatefulSet
     let ss_api: Api<StatefulSet> = Api::namespaced(client.clone(), &namespace);
     let ss_name = format!("{}-read", node.name_any());
     if ss_api.get(&ss_name).await.is_ok() {
-        ss_api.delete(&ss_name, &kube::api::DeleteParams::default()).await?;
+        ss_api
+            .delete(&ss_name, &kube::api::DeleteParams::default())
+            .await?;
         info!("Deleted read-only replica pool: {}", ss_name);
     }
 
@@ -65,7 +69,9 @@ async fn delete_read_pool(client: &Client, node: &StellarNode) -> Result<()> {
     let cm_api: Api<ConfigMap> = Api::namespaced(client.clone(), &namespace);
     let cm_name = format!("{}-read-config", node.name_any());
     if cm_api.get(&cm_name).await.is_ok() {
-        cm_api.delete(&cm_name, &kube::api::DeleteParams::default()).await?;
+        cm_api
+            .delete(&cm_name, &kube::api::DeleteParams::default())
+            .await?;
     }
 
     Ok(())
@@ -96,7 +102,7 @@ fn build_read_config_map(node: &StellarNode) -> ConfigMap {
     let mut script = String::new();
     script.push_str("#!/bin/bash\n");
     script.push_str("set -e\n\n");
-    
+
     // Extract ordinal from hostname (e.g., node-read-0 -> 0)
     script.push_str("ORDINAL=${HOSTNAME##*-}\n");
     script.push_str("echo \"Starting read replica $ORDINAL\"\n\n");
@@ -113,28 +119,35 @@ fn build_read_config_map(node: &StellarNode) -> ConfigMap {
             script.push_str("INDEX=$((ORDINAL % ARCHIVE_COUNT))\n");
             script.push_str("SELECTED_ARCHIVE=${ARCHIVES[$INDEX]}\n");
             script.push_str("echo \"Selected archive shard: $SELECTED_ARCHIVE\"\n\n");
-            
+
             // Generate config content
             script.push_str("cat > /etc/stellar/stellar-core.cfg <<EOF\n");
             script.push_str("HTTP_PORT=11626\n");
             script.push_str("PUBLIC_HTTP_PORT=true\n");
             script.push_str("RUN_STANDALONE=false\n");
-            script.push_str(&format!("NETWORK_PASSPHRASE=\"{}\"\n", node.spec.network.passphrase()));
-            
+            script.push_str(&format!(
+                "NETWORK_PASSPHRASE=\"{}\"\n",
+                node.spec.network.passphrase()
+            ));
+
             // Add history config
             script.push_str("[HISTORY.h1]\n");
             script.push_str("get=\"curl -sf $SELECTED_ARCHIVE/{0} -o {1}\"\n\n");
-            
+
             // Point to the main validator as a preferred peer
             // We assume the main validator service is reachable at <node-name>.<namespace>.svc.cluster.local
-            let validator_svc = format!("{}.{}.svc.cluster.local", node.name_any(), node.namespace().unwrap_or("default".to_string()));
+            let validator_svc = format!(
+                "{}.{}.svc.cluster.local",
+                node.name_any(),
+                node.namespace().unwrap_or("default".to_string())
+            );
             script.push_str("[PREFERRED_PEERS]\n");
             script.push_str(&format!("\"{}\"\n", validator_svc)); // This needs the peer port 11625
-            
+
             script.push_str("EOF\n");
         }
     }
-    
+
     script.push_str("\nexec /usr/bin/stellar-core run --conf /etc/stellar/stellar-core.cfg\n");
 
     data.insert("startup.sh".to_string(), script);
@@ -159,9 +172,9 @@ fn build_read_statefulset(
 ) -> StatefulSet {
     let mut labels = super::resources::standard_labels(node);
     labels.insert("stellar.org/role".to_string(), "read-replica".to_string());
-    
+
     let name = format!("{}-read", node.name_any());
-    
+
     let replicas = if node.spec.suspended {
         0
     } else {
@@ -202,12 +215,32 @@ fn build_read_pod_template(
 
     // Manual conversion of resources since Into is not implemented
     let mut requests = BTreeMap::new();
-    requests.insert("cpu".to_string(), k8s_openapi::apimachinery::pkg::api::resource::Quantity(config.resources.requests.cpu.clone()));
-    requests.insert("memory".to_string(), k8s_openapi::apimachinery::pkg::api::resource::Quantity(config.resources.requests.memory.clone()));
-    
+    requests.insert(
+        "cpu".to_string(),
+        k8s_openapi::apimachinery::pkg::api::resource::Quantity(
+            config.resources.requests.cpu.clone(),
+        ),
+    );
+    requests.insert(
+        "memory".to_string(),
+        k8s_openapi::apimachinery::pkg::api::resource::Quantity(
+            config.resources.requests.memory.clone(),
+        ),
+    );
+
     let mut limits = BTreeMap::new();
-    limits.insert("cpu".to_string(), k8s_openapi::apimachinery::pkg::api::resource::Quantity(config.resources.limits.cpu.clone()));
-    limits.insert("memory".to_string(), k8s_openapi::apimachinery::pkg::api::resource::Quantity(config.resources.limits.memory.clone()));
+    limits.insert(
+        "cpu".to_string(),
+        k8s_openapi::apimachinery::pkg::api::resource::Quantity(
+            config.resources.limits.cpu.clone(),
+        ),
+    );
+    limits.insert(
+        "memory".to_string(),
+        k8s_openapi::apimachinery::pkg::api::resource::Quantity(
+            config.resources.limits.memory.clone(),
+        ),
+    );
 
     let resources = k8s_openapi::api::core::v1::ResourceRequirements {
         requests: Some(requests),
@@ -224,7 +257,10 @@ fn build_read_pod_template(
             containers: vec![Container {
                 name: container_name.to_string(),
                 image: Some(image),
-                command: Some(vec!["/bin/bash".to_string(), "/config/startup.sh".to_string()]),
+                command: Some(vec![
+                    "/bin/bash".to_string(),
+                    "/config/startup.sh".to_string(),
+                ]),
                 resources: Some(resources),
                 ports: Some(vec![
                     ContainerPort {
@@ -238,26 +274,22 @@ fn build_read_pod_template(
                         ..Default::default()
                     },
                 ]),
-                volume_mounts: Some(vec![
-                    VolumeMount {
-                        name: "config".to_string(),
-                        mount_path: "/config".to_string(),
-                        ..Default::default()
-                    }
-                ]),
+                volume_mounts: Some(vec![VolumeMount {
+                    name: "config".to_string(),
+                    mount_path: "/config".to_string(),
+                    ..Default::default()
+                }]),
                 ..Default::default()
             }],
-            volumes: Some(vec![
-                Volume {
-                    name: "config".to_string(),
-                    config_map: Some(k8s_openapi::api::core::v1::ConfigMapVolumeSource {
-                        name: Some(cm_name),
-                        default_mode: Some(0o755),
-                         ..Default::default()
-                    }),
+            volumes: Some(vec![Volume {
+                name: "config".to_string(),
+                config_map: Some(k8s_openapi::api::core::v1::ConfigMapVolumeSource {
+                    name: Some(cm_name),
+                    default_mode: Some(0o755),
                     ..Default::default()
-                }
-            ]),
+                }),
+                ..Default::default()
+            }]),
             ..Default::default()
         }),
     }
