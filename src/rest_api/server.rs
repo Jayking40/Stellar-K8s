@@ -33,6 +33,7 @@ pub async fn run_server(
 ) -> Result<()> {
     let app = Router::new()
         .route("/health", get(handlers::health))
+        .route("/healthz", get(handlers::healthz))
         .route("/leader", get(handlers::leader_status))
         .route("/metrics", get(metrics_handler))
         .route("/api/v1/nodes", get(handlers::list_nodes))
@@ -42,7 +43,8 @@ pub async fn run_server(
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    let port: u16 = if mtls_config.is_some() { 8443 } else { 8080 };
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
     if let Some(config) = mtls_config {
         info!("REST API server listening on {} with mTLS", addr);
@@ -67,6 +69,7 @@ pub async fn run_server(
         }
 
         let client_verifier = WebPkiClientVerifier::builder(roots.into())
+            .allow_unauthenticated()
             .build()
             .map_err(|e| Error::ConfigError(format!("Failed to create client verifier: {e}")))?;
 
