@@ -25,6 +25,7 @@ pub mod mtls;
 pub mod peer_discovery;
 #[cfg(test)]
 mod peer_discovery_test;
+pub mod read_pool;
 mod reconciler;
 #[cfg(test)]
 mod reconciler_test;
@@ -32,7 +33,7 @@ mod remediation;
 #[cfg(test)]
 mod remediation_test;
 mod resources;
-mod traffic;
+pub mod traffic;
 #[cfg(test)]
 mod traffic_test;
 mod vsl;
