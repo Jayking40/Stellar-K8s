@@ -304,6 +304,7 @@ mod tests {
             read_replica_config: None,
             resource_meta: None,
             vpa_config: None,
+            read_pool_endpoint: None,
         };
 
         let labels = get_standard_labels(&spec, "my-validator");
@@ -357,6 +358,7 @@ mod tests {
             read_replica_config: None,
             resource_meta: None,
             vpa_config: None,
+            read_pool_endpoint: None,
         };
 
         let annotations = get_standard_annotations(&spec);
