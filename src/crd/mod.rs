@@ -11,7 +11,7 @@ mod types;
 mod tests;
 
 pub use cnpg::*;
-pub use read_replica::*;
+pub use read_replica::{ReadReplicaConfig, ReadReplicaStrategy};
 pub use stellar_node::{
     BGPStatus, SpecValidationError, StellarNode, StellarNodeSpec, StellarNodeStatus,
 };

@@ -141,8 +141,9 @@ pub struct StellarNodeSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cve_handling: Option<super::types::CVEHandlingConfig>,
 
-    /// Read replica pool configuration for distributing read-only workloads
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Read replica pool configuration for horizontal scaling
+    /// Enables creating read-only replicas with traffic routing strategies
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub read_replica_config: Option<super::read_replica::ReadReplicaConfig>,
 
     #[schemars(skip)]
@@ -200,6 +201,7 @@ impl StellarNodeSpec {
     /// # dr_config: None,
     /// # topology_spread_constraints: None,
     /// # cve_handling: None,
+    /// # read_replica_config: None,
     /// # resource_meta: None,
     /// };
     /// match spec.validate() {
