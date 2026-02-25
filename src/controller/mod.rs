@@ -9,6 +9,7 @@ pub mod captive_core;
 pub mod conditions;
 pub mod cross_cluster;
 pub mod cve;
+pub mod vpa;
 mod cve_reconciler;
 #[cfg(test)]
 mod cve_test;

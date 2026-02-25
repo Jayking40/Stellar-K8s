@@ -303,6 +303,7 @@ mod tests {
             cve_handling: None,
             read_replica_config: None,
             resource_meta: None,
+            vpa_config: None,
         };
 
         let labels = get_standard_labels(&spec, "my-validator");
@@ -355,6 +356,7 @@ mod tests {
             cve_handling: None,
             read_replica_config: None,
             resource_meta: None,
+            vpa_config: None,
         };
 
         let annotations = get_standard_annotations(&spec);

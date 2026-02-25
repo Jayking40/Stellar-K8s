@@ -57,6 +57,7 @@ use super::mtls;
 use super::peer_discovery;
 use super::remediation;
 use super::resources;
+use super::vpa as vpa_controller;
 use super::vsl;
 
 // Constants
@@ -739,6 +740,18 @@ pub(crate) async fn apply_stellar_node(
                 resources::ensure_service_monitor(client, node).await?;
                 resources::ensure_hpa(client, node).await?;
             }
+
+            // VPA Integration
+            match &node.spec.vpa_config {
+                Some(vpa_cfg) => {
+                    vpa_controller::ensure_vpa(client, node, vpa_cfg).await?;
+                }
+                None => {
+                    // Clean up VPA if vpaConfig was removed from the spec
+                    vpa_controller::delete_vpa(client, node).await?;
+                }
+            }
+
             resources::ensure_pdb(client, node).await?;
             resources::ensure_alerting(client, node).await?;
             resources::ensure_network_policy(client, node).await?;
@@ -959,6 +972,15 @@ pub(crate) async fn cleanup_stellar_node(
     })
     .await?;
 
+    // 0b. Delete VPA (if vpaConfig was configured)
+    apply_or_emit(ctx, node, ActionType::Delete, "VPA", async {
+        if let Err(e) = vpa_controller::delete_vpa(client, node).await {
+            warn!("Failed to delete VPA: {:?}", e);
+        }
+        Ok(())
+    })
+    .await?;
+
     // 1. Delete HPA (if autoscaling was configured)
     apply_or_emit(ctx, node, ActionType::Delete, "HPA", async {
         if let Err(e) = resources::delete_hpa(client, node).await {
@@ -1022,31 +1044,6 @@ pub(crate) async fn cleanup_stellar_node(
     })
     .await?;
 
-    // 3b. Delete MetalLB LoadBalancer Service
-    apply_or_emit(
-        ctx,
-        node,
-        ActionType::Delete,
-        "MetalLB LoadBalancer",
-        async {
-            if let Err(e) = resources::delete_load_balancer_service(client, node).await {
-                warn!("Failed to delete MetalLB LoadBalancer service: {:?}", e);
-            }
-            if let Err(e) = resources::delete_metallb_config(client, node).await {
-                warn!("Failed to delete MetalLB configuration: {:?}", e);
-            }
-            Ok(())
-        },
-    )
-    .await?;
-    // 3c. Delete PDB
-    apply_or_emit(ctx, node, ActionType::Delete, "PDB", async {
-        if let Err(e) = resources::delete_pdb(client, node).await {
-            warn!("Failed to delete PodDisruptionBudget: {:?}", e);
-        }
-        Ok(())
-    })
-    .await?;
     // 4. Delete Service
     apply_or_emit(ctx, node, ActionType::Delete, "Service", async {
         if let Err(e) = resources::delete_service(client, node).await {

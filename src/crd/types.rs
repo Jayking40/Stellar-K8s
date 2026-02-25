@@ -226,6 +226,36 @@ pub enum RetentionPolicy {
     Retain,
 }
 
+/// VPA update mode
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum VpaUpdateMode {
+    #[default]
+    Initial,
+    Auto,
+}
+
+/// Per-container resource policy for the VPA
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct VpaContainerPolicy {
+    pub container_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_allowed: Option<std::collections::BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_allowed: Option<std::collections::BTreeMap<String, String>>,
+}
+
+/// VPA configuration — set this on a StellarNode to enable VPA management
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct VpaConfig {
+    #[serde(default)]
+    pub update_mode: VpaUpdateMode,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub container_policies: Vec<VpaContainerPolicy>,
+}
+
 /// Validator-specific configuration
 ///
 /// Configuration for Stellar Core validator nodes, including seed management,

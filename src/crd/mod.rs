@@ -5,7 +5,7 @@
 mod cnpg;
 pub mod read_replica;
 mod stellar_node;
-mod types;
+pub mod types;
 
 #[cfg(test)]
 mod tests;

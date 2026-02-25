@@ -95,6 +95,7 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
                 cve_handling: None,
                 read_replica_config: None,
                 resource_meta: None,
+                vpa_config: None,
             },
             status: None,
         }
@@ -173,6 +174,7 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
                 cve_handling: None,
                 read_replica_config: None,
                 resource_meta: None,
+                vpa_config: None,
             },
             status: None,
         }
@@ -250,6 +252,7 @@ VALIDATORS=["VALIDATOR1", "VALIDATOR2"]"#
                 cve_handling: None,
                 read_replica_config: None,
                 resource_meta: None,
+                vpa_config: None,
             },
             status: None,
         }

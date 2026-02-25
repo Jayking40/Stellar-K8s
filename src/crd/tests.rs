@@ -53,6 +53,7 @@ mod stellar_node_spec_validation {
             cve_handling: None,
             read_replica_config: None,
             resource_meta: None,
+            vpa_config: None,
         }
     }
 
@@ -95,6 +96,7 @@ mod stellar_node_spec_validation {
             cve_handling: None,
             read_replica_config: None,
             resource_meta: None,
+            vpa_config: None,
         }
     }
 
@@ -137,6 +139,7 @@ mod stellar_node_spec_validation {
             cve_handling: None,
             read_replica_config: None,
             resource_meta: None,
+            vpa_config: None,
         }
     }
 
