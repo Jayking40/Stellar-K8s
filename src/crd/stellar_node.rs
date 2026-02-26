@@ -13,8 +13,9 @@ use super::types::{
     AutoscalingConfig, Condition, CrossClusterConfig, DisasterRecoveryConfig,
     DisasterRecoveryStatus, ExternalDatabaseConfig, GlobalDiscoveryConfig, HistoryMode,
     HorizonConfig, IngressConfig, LoadBalancerConfig, ManagedDatabaseConfig, NetworkPolicyConfig,
-    NodeType, OciSnapshotConfig, ResourceRequirements, RetentionPolicy, RolloutStrategy,
-    SorobanConfig, StellarNetwork, StorageConfig, ValidatorConfig, VpaConfig,
+    NodeType, OciSnapshotConfig, ResourceRequirements, RestoreFromSnapshotConfig, RetentionPolicy,
+    RolloutStrategy, SnapshotScheduleConfig, SorobanConfig, StellarNetwork, StorageConfig,
+    ValidatorConfig, VpaConfig,
 };
 
 /// Structured validation error for `StellarNodeSpec`
@@ -148,11 +149,25 @@ pub struct StellarNodeSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cve_handling: Option<super::types::CVEHandlingConfig>,
 
+    /// Schedule and options for taking CSI VolumeSnapshots of the node's data PVC (Validator only).
+    /// Enables zero-downtime backups and creating new nodes from snapshots.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_schedule: Option<SnapshotScheduleConfig>,
+
+    /// Bootstrap this node from an existing VolumeSnapshot instead of an empty volume (Validator only).
+    /// The PVC will be created from the specified snapshot for near-instant startup.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restore_from_snapshot: Option<RestoreFromSnapshotConfig>,
+
     /// Read replica pool configuration for horizontal scaling
     /// Enables creating read-only replicas with traffic routing strategies
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_replica_config: Option<super::read_replica::ReadReplicaConfig>,
 
+    /// Database maintenance configuration for automated vacuum and reindexing
+    /// Enables periodic maintenance windows for performance optimization
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_maintenance_config: Option<super::types::DbMaintenanceConfig>,
     /// OCI-based ledger snapshot sync for multi-region bootstrapping
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oci_snapshot: Option<OciSnapshotConfig>,
@@ -210,6 +225,8 @@ impl StellarNodeSpec {
     /// # load_balancer: None,
     /// # global_discovery: None,
     /// # cross_cluster: None,
+    /// # snapshot_schedule: None,
+    /// # restore_from_snapshot: None,
     /// # strategy: Default::default(),
     /// # maintenance_mode: false,
     /// # network_policy: None,
@@ -217,6 +234,7 @@ impl StellarNodeSpec {
     /// # topology_spread_constraints: None,
     /// # cve_handling: None,
     /// # read_replica_config: None,
+    /// # db_maintenance_config: None,
     /// # oci_snapshot: None,
     /// # service_mesh: None,
     /// # vpa_config: None,
@@ -312,8 +330,29 @@ impl StellarNodeSpec {
                         "Use RollingUpdate strategy for Validator nodes; canary is only supported for Horizon and SorobanRpc.",
                     ));
                 }
+                // Snapshot schedule and restore only apply to Validators (ledger data)
+                if (self.snapshot_schedule.is_some() || self.restore_from_snapshot.is_some())
+                    && self
+                        .restore_from_snapshot
+                        .as_ref()
+                        .map(|r| r.volume_snapshot_name.is_empty())
+                        .unwrap_or(false)
+                {
+                    errors.push(SpecValidationError::new(
+                        "spec.restoreFromSnapshot.volumeSnapshotName",
+                        "volumeSnapshotName must not be empty when restoreFromSnapshot is set",
+                        "Set spec.restoreFromSnapshot.volumeSnapshotName to an existing VolumeSnapshot name.",
+                    ));
+                }
             }
             NodeType::Horizon => {
+                if self.snapshot_schedule.is_some() || self.restore_from_snapshot.is_some() {
+                    errors.push(SpecValidationError::new(
+                        "spec.snapshotSchedule / spec.restoreFromSnapshot",
+                        "snapshot and restore are only supported for Validator nodes",
+                        "Remove spec.snapshotSchedule and spec.restoreFromSnapshot for Horizon nodes.",
+                    ));
+                }
                 // Horizon config required
                 if self.horizon_config.is_none() {
                     errors.push(SpecValidationError::new(
@@ -343,6 +382,13 @@ impl StellarNodeSpec {
                 }
             }
             NodeType::SorobanRpc => {
+                if self.snapshot_schedule.is_some() || self.restore_from_snapshot.is_some() {
+                    errors.push(SpecValidationError::new(
+                        "spec.snapshotSchedule / spec.restoreFromSnapshot",
+                        "snapshot and restore are only supported for Validator nodes",
+                        "Remove spec.snapshotSchedule and spec.restoreFromSnapshot for SorobanRpc nodes.",
+                    ));
+                }
                 // Soroban config required
                 if self.soroban_config.is_none() {
                     errors.push(SpecValidationError::new(
@@ -811,6 +857,10 @@ pub struct StellarNodeStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ledger_sequence: Option<u64>,
 
+    /// Timestamp of the last ledger update (RFC3339)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ledger_updated_at: Option<String>,
+
     /// Endpoint where the node is accessible (Service ClusterIP or external)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
@@ -1056,7 +1106,10 @@ mod tests {
             topology_spread_constraints: None,
             cross_cluster: None,
             cve_handling: None,
+            snapshot_schedule: None,
+            restore_from_snapshot: None,
             read_replica_config: None,
+            db_maintenance_config: None,
             oci_snapshot: None,
             service_mesh: None,
             resource_meta: None,
@@ -1107,7 +1160,10 @@ mod tests {
             topology_spread_constraints: None,
             cross_cluster: None,
             cve_handling: None,
+            snapshot_schedule: None,
+            restore_from_snapshot: None,
             read_replica_config: None,
+            db_maintenance_config: None,
             oci_snapshot: None,
             service_mesh: None,
             resource_meta: None,

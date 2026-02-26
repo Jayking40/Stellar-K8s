@@ -155,6 +155,46 @@ pub enum RetentionPolicy {
     Retain,
 }
 
+/// Configuration for zero-downtime CSI VolumeSnapshot scheduling
+///
+/// When set, the operator will create Kubernetes VolumeSnapshot resources targeting
+/// the node's data PVC on the given schedule (or on-demand via annotation).
+/// For database consistency, the operator can optionally trigger a brief flush/lock
+/// before taking the snapshot when the storage driver does not guarantee crash consistency.
+///
+/// Only applies to Validator nodes (Stellar Core ledger data).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotScheduleConfig {
+    /// Cron expression for scheduled snapshots (e.g. "0 2 * * *" for daily at 2 AM).
+    /// If unset, snapshots are only taken when triggered via annotation `stellar.org/request-snapshot: "true"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<String>,
+    /// VolumeSnapshotClass name. If unset, the default class for the PVC's driver is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub volume_snapshot_class_name: Option<String>,
+    /// If true, the operator will attempt to flush/lock the Stellar database briefly before creating the snapshot (e.g. via stellar-core HTTP or exec). Requires the node to be healthy.
+    #[serde(default)]
+    pub flush_before_snapshot: bool,
+    /// Maximum number of snapshots to retain per node. Oldest snapshots are deleted when exceeded. 0 means no limit.
+    #[serde(default)]
+    pub retention_count: u32,
+}
+
+/// Configuration to bootstrap a new node from an existing CSI VolumeSnapshot
+///
+/// When set, the node's PVC is created from the specified VolumeSnapshot instead of
+/// starting empty, enabling near-instant bootstrap without syncing from a history archive.
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreFromSnapshotConfig {
+    /// Name of the VolumeSnapshot to restore from (must exist in the same namespace as the StellarNode).
+    pub volume_snapshot_name: String,
+    /// Optional: namespace of the VolumeSnapshot if different from the StellarNode. Requires CrossNamespaceVolumeDataSource where supported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+}
+
 /// VPA update mode
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
@@ -1197,6 +1237,42 @@ pub struct PgBouncerConfig {
     pub max_client_conn: i32,
     #[serde(default = "default_pool_size")]
     pub default_pool_size: i32,
+}
+
+// ============================================================================
+// Database Maintenance Configuration
+// ============================================================================
+
+/// Configuration for automated database maintenance (VACUUM, Reindexing)
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DbMaintenanceConfig {
+    /// Enable automated database maintenance
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Maintenance window start time (24h format, e.g., "02:00")
+    /// Maintenance will only trigger during this window
+    pub window_start: String,
+
+    /// Maintenance window duration (e.g., "2h")
+    pub window_duration: String,
+
+    /// Bloat threshold percentage to trigger VACUUM FULL (default: 30)
+    #[serde(default = "default_bloat_threshold")]
+    pub bloat_threshold_percent: u32,
+
+    /// Automatically reindex bloated tables
+    #[serde(default = "default_true")]
+    pub auto_reindex: bool,
+
+    /// Coordination with read-pool for zero-downtime
+    #[serde(default = "default_true")]
+    pub read_pool_coordination: bool,
+}
+
+fn default_bloat_threshold() -> u32 {
+    30
 }
 
 fn default_pooler_replicas() -> i32 {
