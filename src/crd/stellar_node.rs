@@ -149,6 +149,11 @@ pub struct StellarNodeSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_replica_config: Option<super::read_replica::ReadReplicaConfig>,
 
+    /// Database maintenance configuration for automated vacuum and reindexing
+    /// Enables periodic maintenance windows for performance optimization
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_maintenance_config: Option<super::types::DbMaintenanceConfig>,
+
     #[schemars(skip)]
     pub resource_meta: Option<ObjectMeta>,
 }
