@@ -126,12 +126,13 @@ pub async fn server_cert_needs_rotation(
         Ok(s) => s,
         Err(_) => return Ok(true), // No cert yet, needs creation (handled by ensure_server_cert)
     };
-    let data = secret.data.as_ref().ok_or_else(|| {
-        Error::ConfigError("Server cert secret has no data".to_string())
-    })?;
-    let cert_pem = data.get("tls.crt").ok_or_else(|| {
-        Error::ConfigError("Server cert secret missing tls.crt".to_string())
-    })?;
+    let data = secret
+        .data
+        .as_ref()
+        .ok_or_else(|| Error::ConfigError("Server cert secret has no data".to_string()))?;
+    let cert_pem = data
+        .get("tls.crt")
+        .ok_or_else(|| Error::ConfigError("Server cert secret missing tls.crt".to_string()))?;
     let time_to_exp = cert_time_to_expiration(&cert_pem.0)?;
     let threshold = Duration::from_secs(rotation_threshold_days as u64 * 24 * 3600);
     match time_to_exp {
@@ -157,7 +158,10 @@ async fn generate_and_patch_server_cert_inner(
     namespace: &str,
     dns_names: Vec<String>,
 ) -> Result<()> {
-    let ca_secret = secrets.get(CA_SECRET_NAME).await.map_err(Error::KubeError)?;
+    let ca_secret = secrets
+        .get(CA_SECRET_NAME)
+        .await
+        .map_err(Error::KubeError)?;
     let ca_cert_pem = String::from_utf8(
         ca_secret
             .data
@@ -390,7 +394,8 @@ mod tests {
         // Certificate valid from 2020 to 2030: rotation should be ignored when healthy
         let pem = make_self_signed_cert((2020, 1, 1), (2030, 1, 1));
         let time_to_exp = cert_time_to_expiration(&pem).unwrap();
-        let thirty_days = Duration::from_secs(DEFAULT_CERT_ROTATION_THRESHOLD_DAYS as u64 * 24 * 3600);
+        let thirty_days =
+            Duration::from_secs(DEFAULT_CERT_ROTATION_THRESHOLD_DAYS as u64 * 24 * 3600);
         assert!(
             time_to_exp.is_some(),
             "healthy cert should have some time to expiration (got None - cert may be considered invalid by parser)"

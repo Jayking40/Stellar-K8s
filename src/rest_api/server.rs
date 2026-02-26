@@ -10,8 +10,8 @@ use std::sync::Arc;
 use axum::{routing::get, Router};
 use axum_server::tls_rustls::RustlsConfig;
 use rustls::server::WebPkiClientVerifier;
-use rustls::ServerConfig;
 use rustls::RootCertStore;
+use rustls::ServerConfig;
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tower_http::trace::TraceLayer;
@@ -39,8 +39,8 @@ pub fn build_tls_server_config(
 
     let mut roots = RootCertStore::empty();
     for cert_res in CertificateDer::pem_slice_iter(ca_pem) {
-        let cert = cert_res
-            .map_err(|e| Error::ConfigError(format!("Failed to parse CA cert: {e}")))?;
+        let cert =
+            cert_res.map_err(|e| Error::ConfigError(format!("Failed to parse CA cert: {e}")))?;
         roots
             .add(cert)
             .map_err(|e| Error::ConfigError(format!("Failed to add CA cert: {e}")))?;

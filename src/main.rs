@@ -299,9 +299,8 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
                             // Rotation performed: fetch new secret and reload TLS
                             let secrets: kube::Api<k8s_openapi::api::core::v1::Secret> =
                                 kube::Api::namespaced(rotation_client.clone(), &rotation_namespace);
-                            if let Ok(secret) = secrets
-                                .get(controller::mtls::SERVER_CERT_SECRET_NAME)
-                                .await
+                            if let Ok(secret) =
+                                secrets.get(controller::mtls::SERVER_CERT_SECRET_NAME).await
                             {
                                 if let (Some(cert), Some(key), Some(ca)) = (
                                     secret.data.as_ref().and_then(|d| d.get("tls.crt")),
@@ -309,16 +308,19 @@ async fn run_operator(args: RunArgs) -> Result<(), Error> {
                                     secret.data.as_ref().and_then(|d| d.get("ca.crt")),
                                 ) {
                                     match stellar_k8s::rest_api::build_tls_server_config(
-                                        &cert.0,
-                                        &key.0,
-                                        &ca.0,
+                                        &cert.0, &key.0, &ca.0,
                                     ) {
                                         Ok(new_config) => {
                                             rustls_config.reload_from_config(new_config);
-                                            info!("TLS server config reloaded with new certificate");
+                                            info!(
+                                                "TLS server config reloaded with new certificate"
+                                            );
                                         }
                                         Err(e) => {
-                                            tracing::error!("Failed to build TLS config after rotation: {:?}", e);
+                                            tracing::error!(
+                                                "Failed to build TLS config after rotation: {:?}",
+                                                e
+                                            );
                                         }
                                     }
                                 }
