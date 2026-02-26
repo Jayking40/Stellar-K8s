@@ -21,8 +21,8 @@ use tracing::{error, info, instrument, warn};
 
 use super::runtime::WasmRuntime;
 use super::types::{
-    Operation, PluginConfig, PluginExecutionResult, PluginMetadata, UserInfo,
-    ValidationInput, ValidationOutput,
+    Operation, PluginConfig, PluginExecutionResult, PluginMetadata, UserInfo, ValidationInput,
+    ValidationOutput,
 };
 use crate::crd::StellarNode;
 use crate::error::{Error, Result};
@@ -553,8 +553,8 @@ mod base64_serde {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::PluginLimits;
+    use super::*;
 
     fn default_user_info() -> UserInfo {
         UserInfo {
@@ -565,7 +565,10 @@ mod tests {
         }
     }
 
-    fn validation_input(operation: Operation, object: Option<serde_json::Value>) -> ValidationInput {
+    fn validation_input(
+        operation: Operation,
+        object: Option<serde_json::Value>,
+    ) -> ValidationInput {
         ValidationInput {
             operation,
             object,
@@ -600,7 +603,11 @@ mod tests {
 
         let input = validation_input(Operation::Create, Some(valid_object));
         let result = server.validate(input).await;
-        assert!(result.allowed, "valid spec should be admitted: {:?}", result.message);
+        assert!(
+            result.allowed,
+            "valid spec should be admitted: {:?}",
+            result.message
+        );
     }
 
     /// A spec with an invalid nodeType is rejected with a descriptive message
@@ -623,7 +630,10 @@ mod tests {
         assert!(!result.allowed);
         let msg = result.message.unwrap_or_default();
         assert!(
-            msg.contains("Invalid") || msg.contains("nodeType") || msg.contains("parse") || msg.contains("unknown"),
+            msg.contains("Invalid")
+                || msg.contains("nodeType")
+                || msg.contains("parse")
+                || msg.contains("unknown"),
             "expected descriptive rejection message, got: {}",
             msg
         );
@@ -685,7 +695,11 @@ mod tests {
         });
         let input = validation_input(Operation::Create, Some(valid_object));
         let result = server.validate(input).await;
-        assert!(result.allowed, "valid spec with no plugins should be admitted: {:?}", result.message);
+        assert!(
+            result.allowed,
+            "valid spec with no plugins should be admitted: {:?}",
+            result.message
+        );
     }
 
     /// Wasm plugin that traps is handled gracefully (operator doesn't crash, returns denied or fail-open)
@@ -713,12 +727,10 @@ mod tests {
                 sha256: None,
                 limits: PluginLimits::default(),
             },
-            wasm_binary: Some(
-                base64::Engine::encode(
-                    &base64::engine::general_purpose::STANDARD,
-                    &wasm,
-                ),
-            ),
+            wasm_binary: Some(base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                &wasm,
+            )),
             config_map_ref: None,
             secret_ref: None,
             url: None,
@@ -748,9 +760,19 @@ mod tests {
         let input = validation_input(Operation::Create, Some(valid_object));
         let result = server.validate(input).await;
 
-        assert!(!result.allowed, "trap plugin should cause denial when fail_open is false");
         assert!(
-            result.message.as_ref().map(|m| m.contains("Plugin") || m.contains("trap") || m.contains("execution") || m.contains("unreachable")).unwrap_or(false),
+            !result.allowed,
+            "trap plugin should cause denial when fail_open is false"
+        );
+        assert!(
+            result
+                .message
+                .as_ref()
+                .map(|m| m.contains("Plugin")
+                    || m.contains("trap")
+                    || m.contains("execution")
+                    || m.contains("unreachable"))
+                .unwrap_or(false),
             "expected plugin error message, got: {:?}",
             result.message
         );
@@ -781,12 +803,10 @@ mod tests {
                 sha256: None,
                 limits: PluginLimits::default(),
             },
-            wasm_binary: Some(
-                base64::Engine::encode(
-                    &base64::engine::general_purpose::STANDARD,
-                    &wasm,
-                ),
-            ),
+            wasm_binary: Some(base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                &wasm,
+            )),
             config_map_ref: None,
             secret_ref: None,
             url: None,
@@ -817,6 +837,9 @@ mod tests {
         let result = server.validate(input).await;
 
         assert!(result.allowed, "fail_open should allow when plugin traps");
-        assert!(!result.warnings.is_empty(), "expected warning about plugin failure");
+        assert!(
+            !result.warnings.is_empty(),
+            "expected warning about plugin failure"
+        );
     }
 }
